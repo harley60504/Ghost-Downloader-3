@@ -108,6 +108,10 @@ function createEmptyPayload(): PopupStatePayload {
     selectedMediaTabId: null,
     selectedMediaIndex: -1,
     mediaPlaybackState: createEmptyMediaState(),
+
+    domainBlacklist: "",
+    typeBlacklist: "",
+    sizeBlacklistMB: "",
   };
 }
 
@@ -290,6 +294,86 @@ export function usePopupBridge(activeView: PopupView) {
       }
     },
     [applyPopupState, requestView, setFlash],
+  );
+
+  const saveDomainBlacklist = useCallback(
+    async (value: string) => {
+      try {
+        const result = await sendRuntimeMessage<{ ok: boolean }>({
+          type: "popup_set_domain_blacklist",
+          value,
+        });
+
+        if (!result?.ok) {
+          throw new Error("保存网域黑名单失败");
+        }
+
+        setPayload((current) => ({
+          ...current,
+          domainBlacklist: value,
+        }));
+
+        setFlash("网域黑名单已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(getErrorMessage(error, "保存网域黑名单失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
+  );
+
+  const saveTypeBlacklist = useCallback(
+    async (value: string) => {
+      try {
+        const result = await sendRuntimeMessage<{ ok: boolean }>({
+          type: "popup_set_type_blacklist",
+          value,
+        });
+
+        if (!result?.ok) {
+          throw new Error("保存类型黑名单失败");
+        }
+
+        setPayload((current) => ({
+          ...current,
+          typeBlacklist: value,
+        }));
+
+        setFlash("类型黑名单已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(getErrorMessage(error, "保存类型黑名单失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
+  );
+  const saveSizeBlacklist = useCallback(
+    async (value: string) => {
+      try {
+        const result = await sendRuntimeMessage<{ ok: boolean }>({
+          type: "popup_set_size_blacklist",
+          value,
+        });
+
+        if (!result?.ok) {
+          throw new Error("保存大小门槛失败");
+        }
+
+        setPayload((current) => ({
+          ...current,
+          sizeBlacklistMB: value,
+        }));
+
+        setFlash("大小门槛已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(getErrorMessage(error, "保存大小门槛失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
   );
 
   const refreshConnection = useCallback(async () => {
@@ -536,6 +620,9 @@ export function usePopupBridge(activeView: PopupView) {
     toggleFeature,
     setMediaTarget,
     performMediaAction,
+    saveDomainBlacklist,
+    saveTypeBlacklist,
+    saveSizeBlacklist,
     sortedTasks,
     isTaskBusy: (taskId: string) => busyTaskIds.has(taskId),
     isResourceBusy: (resourceId: string) => busyResourceIds.has(resourceId),

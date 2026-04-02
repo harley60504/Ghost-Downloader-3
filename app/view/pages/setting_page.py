@@ -24,7 +24,6 @@ if sys.platform != "darwin":
 else:
     from qfluentwidgets import ScrollArea
 
-
 class SettingPage(ScrollArea):
     """设置页面"""
 
@@ -43,6 +42,7 @@ class SettingPage(ScrollArea):
         self.initCards()
         self.initLayout()
         self.connectSignalToSlot()
+        self._refreshBrowserAddressCard()
 
     def initWidget(self):
         self.setWidget(self.container)
@@ -125,6 +125,25 @@ class SettingPage(ScrollArea):
             self.browserGroup,
         )
         self.browserGroup.addSettingCard(self.browserExtensionCard)
+        self.browserAddressCard = PushSettingCard(
+            self.tr("刷新"),
+            FluentIcon.LINK,
+            self.tr("服务地址"),
+            self.tr("正在读取服务地址"),
+            self.browserGroup,
+        )
+        self.browserGroup.addSettingCard(self.browserAddressCard)
+        self.browserPortCard = SpinBoxSettingCard(
+            FluentIcon.FONT_SIZE,
+            self.tr("服务端口"),
+            self.tr("浏览器扩展连接 Ghost Downloader 时使用的端口"),
+            "",
+            cfg.browserExtensionPort,
+            self.browserGroup,
+            1,
+            1,
+        )
+        self.browserGroup.addSettingCard(self.browserPortCard)
         self.raiseWindowWhenReceiveMsg = SwitchSettingCard(
             FluentIcon.CHAT,
             self.tr("收到下载信息时弹出窗口"),
@@ -148,6 +167,14 @@ class SettingPage(ScrollArea):
         self.browserPairTokenCard.hBoxLayout.insertWidget(
             7, self.regeneratePairTokenButton, 0, Qt.AlignmentFlag.AlignRight
         )
+        self.browserLanModeCard = SwitchSettingCard(
+            FluentIcon.GLOBE,
+            self.tr("启用区域网络访问"),
+            self.tr("关闭时仅允许本机连接，开启后允许局域网设备连接"),
+            cfg.browserExtensionLanMode,
+            self.browserGroup,
+        )
+        self.browserGroup.addSettingCard(self.browserLanModeCard)
         self.installExtensionCard = PushSettingCard(
             self.tr("导出 Chromium 扩展"),
             FluentIcon.DICTIONARY,
@@ -316,6 +343,8 @@ class SettingPage(ScrollArea):
     def connectSignalToSlot(self):
         cfg.appRestartSig.connect(self._showRestartTooltip)
         cfg.browserExtensionPairToken.valueChanged.connect(lambda _: self._refreshBrowserPairTokenCard())
+        cfg.browserExtensionLanMode.valueChanged.connect(lambda _: self._onBrowserServerConfigChanged())
+        cfg.browserExtensionPort.valueChanged.connect(lambda _: self._onBrowserServerConfigChanged())
         self.downloadFolderCard.pathChanged.connect(lambda x: cfg.set(cfg.downloadFolder, x))
         self.browserPairTokenCard.clicked.connect(self._copyBrowserPairToken)
         self.regeneratePairTokenButton.clicked.connect(self._regenerateBrowserPairToken)
@@ -327,6 +356,7 @@ class SettingPage(ScrollArea):
             lambda: QDesktopServices.openUrl(QUrl(FEEDBACK_URL))
         )
         self.openLogButton.clicked.connect(openAppLogFolder)
+        self.browserAddressCard.clicked.connect(self._refreshBrowserAddressCard)
 
     def _showRestartTooltip(self):
         InfoBar.success(
@@ -488,3 +518,21 @@ class SettingPage(ScrollArea):
                 duration=1000,
                 parent=self.parent(),
             )
+    def _refreshBrowserAddressCard(self):
+        service = BrowserService.instance()
+        local_url = service.getLocalServerUrl()
+        lan_url = service.getLanServerUrl()
+        is_lan = bool(cfg.browserExtensionLanMode.value)
+
+        if is_lan:
+            if lan_url:
+                content = self.tr("当前模式：区网\n本机：{}\n区网：{}").format(local_url, lan_url)
+            else:
+                content = self.tr("当前模式：区网\n本机：{}\n区网地址获取失败").format(local_url)
+        else:
+            content = self.tr("当前模式：仅本机\n本机：{}").format(local_url)
+
+        self.browserAddressCard.setContent(content)
+    def _onBrowserServerConfigChanged(self):
+        BrowserService.instance().restartServer()
+        self._refreshBrowserAddressCard()

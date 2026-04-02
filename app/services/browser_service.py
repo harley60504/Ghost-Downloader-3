@@ -70,8 +70,6 @@ class BrowserVirtualUrl(StrEnum):
 
 class BrowserService(QObject):
     _instance: Self | None = None
-    SERVER_HOST = QHostAddress.SpecialAddress.LocalHost
-    SERVER_PORT = 14370
     PROTOCOL_VERSION = 1
 
     def __init__(self, parent=None):
@@ -99,17 +97,106 @@ class BrowserService(QObject):
 
         cfg.set(cfg.browserExtensionPairToken, token_urlsafe(16))
 
+    def restartServer(self):
+        enabled = bool(cfg.enableBrowserExtension.value)
+        self._closeAllClients()
+        if self.server.isListening():
+            self.server.close()
+
+        if enabled:
+            self._syncEnabled(True)
+    
     @property
     def pairToken(self) -> str:
         self._ensurePairToken()
         return str(cfg.browserExtensionPairToken.value)
-
+    
     def regeneratePairToken(self) -> str:
         token = token_urlsafe(16)
         cfg.set(cfg.browserExtensionPairToken, token)
         self._closeAllClients()
         return token
 
+    def _getServerHostString(self) -> str:
+        return "0.0.0.0" if cfg.browserExtensionLanMode.value else "127.0.0.1"
+
+    def _getServerAddress(self) -> QHostAddress:
+        return QHostAddress(self._getServerHostString())
+
+    def _getServerPort(self) -> int:
+        return int(cfg.browserExtensionPort.value)
+
+    def getLocalServerUrl(self) -> str:
+        return f"ws://127.0.0.1:{self._getServerPort()}"
+    
+    def getLanServerUrl(self) -> str:
+        from PySide6.QtNetwork import QNetworkInterface, QAbstractSocket
+
+        preferred_ips = []
+        fallback_ips = []
+
+        skip_keywords = [
+            "virtual",
+            "vmware",
+            "hyper-v",
+            "vethernet",
+            "virtualbox",
+            "loopback",
+            "zerotier",
+            "tailscale",
+            "wireguard",
+            "vpn",
+            "bluetooth",
+        ]
+
+        for interface in QNetworkInterface.allInterfaces():
+            flags = interface.flags()
+            name = interface.humanReadableName().lower()
+
+            if not (flags & QNetworkInterface.InterfaceFlag.IsUp):
+                continue
+            if not (flags & QNetworkInterface.InterfaceFlag.IsRunning):
+                continue
+            if flags & QNetworkInterface.InterfaceFlag.IsLoopBack:
+                continue
+            if any(keyword in name for keyword in skip_keywords):
+                continue
+
+            for entry in interface.addressEntries():
+                ip = entry.ip()
+                if ip.protocol() != QAbstractSocket.NetworkLayerProtocol.IPv4Protocol:
+                    continue
+
+                ip_str = ip.toString()
+
+                # 排除 loopback、APIPA、無效位址
+                if ip_str.startswith("127."):
+                    continue
+                if ip_str.startswith("169.254."):
+                    continue
+                if ip_str == "0.0.0.0":
+                    continue
+
+                # 優先挑真正常見的私有區網 IP
+                if (
+                    ip_str.startswith("192.168.")
+                    or ip_str.startswith("10.")
+                    or (
+                        ip_str.startswith("172.")
+                        and 16 <= int(ip_str.split(".")[1]) <= 31
+                    )
+                ):
+                    preferred_ips.append(ip_str)
+                else:
+                    fallback_ips.append(ip_str)
+
+        if preferred_ips:
+            return f"ws://{preferred_ips[0]}:{self._getServerPort()}"
+
+        if fallback_ips:
+            return f"ws://{fallback_ips[0]}:{self._getServerPort()}"
+
+        return ""
     @classmethod
     def initialize(cls, parent=None) -> Self:
         if cls._instance is None:
@@ -138,12 +225,16 @@ class BrowserService(QObject):
         self._clientSessions.clear()
 
     @Slot(bool)
+    @Slot(bool)
     def _syncEnabled(self, enabled: bool):
         if enabled:
             if self.server.isListening():
-                return
+                self.server.close()
 
-            if self.server.listen(self.SERVER_HOST, self.SERVER_PORT):
+            host = self._getServerAddress()
+            port = self._getServerPort()
+
+            if self.server.listen(host, port):
                 logger.info(
                     "Browser extension server started on ws://{}:{}",
                     self.server.serverAddress().toString(),
@@ -159,7 +250,6 @@ class BrowserService(QObject):
         if self.server.isListening():
             self.server.close()
             logger.info("Browser extension server stopped")
-
     @Slot()
     def _onNewConnection(self):
         socket = self.server.nextPendingConnection()

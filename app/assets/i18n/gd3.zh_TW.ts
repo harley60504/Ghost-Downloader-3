@@ -348,94 +348,94 @@
 <context>
     <name>BrowserService</name>
     <message>
-        <location filename="../../services/browser_service.py" line="345"/>
+        <location filename="../../services/browser_service.py" line="435"/>
         <source>无法解析该链接</source>
         <translation type="unfinished">无法解析该链接</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="358"/>
+        <location filename="../../services/browser_service.py" line="448"/>
         <source>创建任务失败</source>
         <translation type="unfinished">创建任务失败</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="374"/>
-        <location filename="../../services/browser_service.py" line="546"/>
+        <location filename="../../services/browser_service.py" line="464"/>
+        <location filename="../../services/browser_service.py" line="636"/>
         <source>缺少 requestId</source>
         <translation type="unfinished">缺少 requestId</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="382"/>
+        <location filename="../../services/browser_service.py" line="472"/>
         <source>无效的任务负载</source>
         <translation type="unfinished">无效的任务负载</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="400"/>
+        <location filename="../../services/browser_service.py" line="490"/>
         <source>在线合并暂时只支持 2 个资源</source>
         <translation type="unfinished">在线合并暂时只支持 2 个资源</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="423"/>
+        <location filename="../../services/browser_service.py" line="513"/>
         <source>缺少下载链接</source>
         <translation type="unfinished">缺少下载链接</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="557"/>
+        <location filename="../../services/browser_service.py" line="647"/>
         <source>不支持的任务操作</source>
         <translation type="unfinished">不支持的任务操作</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="568"/>
+        <location filename="../../services/browser_service.py" line="658"/>
         <source>任务不存在</source>
         <translation type="unfinished">任务不存在</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="581"/>
+        <location filename="../../services/browser_service.py" line="671"/>
         <source>当前任务不支持暂停</source>
         <translation type="unfinished">当前任务不支持暂停</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="591"/>
+        <location filename="../../services/browser_service.py" line="681"/>
         <source>任务已完成</source>
         <translation type="unfinished">任务已完成</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="635"/>
+        <location filename="../../services/browser_service.py" line="725"/>
         <source>文件尚未生成</source>
         <translation type="unfinished">文件尚未生成</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="650"/>
+        <location filename="../../services/browser_service.py" line="740"/>
         <source>目录不存在</source>
         <translation type="unfinished">目录不存在</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="677"/>
+        <location filename="../../services/browser_service.py" line="767"/>
         <source>无效的消息格式</source>
         <translation type="unfinished">无效的消息格式</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="681"/>
+        <location filename="../../services/browser_service.py" line="771"/>
         <source>无效的消息结构</source>
         <translation type="unfinished">无效的消息结构</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="688"/>
-        <location filename="../../services/browser_service.py" line="748"/>
+        <location filename="../../services/browser_service.py" line="778"/>
+        <location filename="../../services/browser_service.py" line="838"/>
         <source>未知的消息类型</source>
         <translation type="unfinished">未知的消息类型</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="696"/>
+        <location filename="../../services/browser_service.py" line="786"/>
         <source>协议版本不匹配</source>
         <translation type="unfinished">协议版本不匹配</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="707"/>
+        <location filename="../../services/browser_service.py" line="797"/>
         <source>配对令牌无效</source>
         <translation type="unfinished">配对令牌无效</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="730"/>
+        <location filename="../../services/browser_service.py" line="820"/>
         <source>请先完成握手认证</source>
         <translation type="unfinished">请先完成握手认证</translation>
     </message>
@@ -1488,28 +1488,28 @@ FFmpeg: {2}</translation>
 <context>
     <name>SettingPage</name>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="36"/>
+        <location filename="../../view/pages/setting_page.py" line="35"/>
         <source>综合下载设置</source>
         <translation>綜合下載設定</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="37"/>
+        <location filename="../../view/pages/setting_page.py" line="36"/>
         <source>浏览器扩展</source>
         <translation>瀏覽器擴充功能</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="38"/>
+        <location filename="../../view/pages/setting_page.py" line="37"/>
         <source>个性化</source>
         <translation>個人化</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="39"/>
+        <location filename="../../view/pages/setting_page.py" line="38"/>
         <source>应用</source>
         <translation>應用</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="40"/>
-        <location filename="../../view/pages/setting_page.py" line="303"/>
+        <location filename="../../view/pages/setting_page.py" line="39"/>
+        <location filename="../../view/pages/setting_page.py" line="330"/>
         <source>关于</source>
         <translation>關於</translation>
     </message>
@@ -1584,260 +1584,327 @@ FFmpeg: {2}</translation>
         <translation>若要從瀏覽器接收下載資訊，請安裝瀏覽器擴充功能並使用</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="130"/>
+        <location filename="../../view/pages/setting_page.py" line="129"/>
+        <source>刷新</source>
+        <translation>重新整理</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="131"/>
+        <source>服务地址</source>
+        <translation>服務位址</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="132"/>
+        <source>正在读取服务地址</source>
+        <translation>正在讀取服務位址</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="138"/>
+        <source>服务端口</source>
+        <translation>服務連接埠</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="139"/>
+        <source>浏览器扩展连接 Ghost Downloader 时使用的端口</source>
+        <translation>瀏覽器擴充功能連線到 Ghost Downloader 時使用的連接埠</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="149"/>
         <source>收到下载信息时弹出窗口</source>
         <translation>收到下載資訊時跳出來視窗</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="131"/>
+        <location filename="../../view/pages/setting_page.py" line="150"/>
         <source>收到下载信息时弹出窗口，方便您调整下载参数</source>
         <translation>接收下載資訊時會彈出視窗，方便您調整下載參數</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="137"/>
+        <location filename="../../view/pages/setting_page.py" line="156"/>
         <source>复制令牌</source>
-        <translation type="unfinished">复制令牌</translation>
+        <translation>複製令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="139"/>
+        <location filename="../../view/pages/setting_page.py" line="158"/>
         <source>配对令牌</source>
-        <translation type="unfinished">配对令牌</translation>
+        <translation>配對令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="145"/>
+        <location filename="../../view/pages/setting_page.py" line="164"/>
         <source>重新生成令牌</source>
-        <translation type="unfinished">重新生成令牌</translation>
+        <translation>重新產生令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="152"/>
+        <location filename="../../view/pages/setting_page.py" line="172"/>
+        <source>启用区域网络访问</source>
+        <translation>啟用區域網路存取</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="173"/>
+        <source>关闭时仅允许本机连接，开启后允许局域网设备连接</source>
+        <translation>關閉時僅允許本機連線，開啟後允許區域網路裝置連線</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="179"/>
         <source>导出 Chromium 扩展</source>
         <translation>匯出 Chromium 擴充功能</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="154"/>
+        <location filename="../../view/pages/setting_page.py" line="181"/>
         <source>安装浏览器扩展</source>
         <translation>安裝瀏覽器擴充功能</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="155"/>
+        <location filename="../../view/pages/setting_page.py" line="182"/>
         <source>请选择最适合您的浏览器扩展安装方式</source>
         <translation>請選擇最適合您的瀏覽器擴充套件安裝方式</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="160"/>
+        <location filename="../../view/pages/setting_page.py" line="187"/>
         <source>Firefox</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="167"/>
+        <location filename="../../view/pages/setting_page.py" line="194"/>
         <source>Edge</source>
         <translation type="unfinished">Edge</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="174"/>
+        <location filename="../../view/pages/setting_page.py" line="201"/>
         <source>Chrome</source>
         <translation type="unfinished">Chrome</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="181"/>
+        <location filename="../../view/pages/setting_page.py" line="208"/>
         <source>查看安装指南</source>
         <translation>檢視安裝手冊</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="183"/>
+        <location filename="../../view/pages/setting_page.py" line="210"/>
         <source>浏览器扩展安装指南</source>
         <translation>瀏覽器擴充功能安裝手冊</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="184"/>
+        <location filename="../../view/pages/setting_page.py" line="211"/>
         <source>解决安装浏览器扩展时遇到的常见问题</source>
         <translation>解決安裝瀏覽器擴充功能時遇到的常見問題</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="192"/>
+        <location filename="../../view/pages/setting_page.py" line="219"/>
         <source>应用主题</source>
         <translation>應用主題</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="193"/>
+        <location filename="../../view/pages/setting_page.py" line="220"/>
         <source>更改应用程序的外观</source>
         <translation>修改應用程序佈景主題</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="221"/>
         <source>浅色</source>
         <translation>淺色</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="221"/>
         <source>深色</source>
         <translation type="unfinished">深色</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="221"/>
         <source>跟随系统设置</source>
         <translation>Windows 預設</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="209"/>
+        <location filename="../../view/pages/setting_page.py" line="236"/>
         <source>窗口背景透明材质</source>
         <translation>視窗背景透明度</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="210"/>
+        <location filename="../../view/pages/setting_page.py" line="237"/>
         <source>设置窗口背景透明效果和透明材质</source>
         <translation>設定視窗背景的透明效果和透明材質</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="217"/>
+        <location filename="../../view/pages/setting_page.py" line="244"/>
         <source>界面缩放</source>
         <translation>比例</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="218"/>
+        <location filename="../../view/pages/setting_page.py" line="245"/>
         <source>改变应用程序界面的缩放比例, 0% 为自动</source>
         <translation>變更應用程式介面的縮放比例，0% 是自動調整</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="228"/>
+        <location filename="../../view/pages/setting_page.py" line="255"/>
         <source>在 Dock 栏中显示程序</source>
         <translation type="unfinished">在 Dock 栏中显示程序</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="229"/>
+        <location filename="../../view/pages/setting_page.py" line="256"/>
         <source>关闭后可通过菜单栏图标继续使用程序</source>
         <translation type="unfinished">关闭后可通过菜单栏图标继续使用程序</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="237"/>
+        <location filename="../../view/pages/setting_page.py" line="264"/>
         <source>语言</source>
         <translation>語言</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="238"/>
+        <location filename="../../view/pages/setting_page.py" line="265"/>
         <source>设置界面的首选语言</source>
         <translation>設定介面的偏好語言</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="247"/>
+        <location filename="../../view/pages/setting_page.py" line="274"/>
         <source>使用系统设置</source>
         <translation>使用系統設定</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="255"/>
+        <location filename="../../view/pages/setting_page.py" line="282"/>
         <source>在应用程序启动时检查更新</source>
         <translation>在應用程式啟動時檢查更新</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="256"/>
+        <location filename="../../view/pages/setting_page.py" line="283"/>
         <source>新版本将更稳定，并具有更多功能</source>
         <translation>新版本將更穩定，並擁有更多功能</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="263"/>
+        <location filename="../../view/pages/setting_page.py" line="290"/>
         <source>开机启动</source>
         <translation>啟動時執行</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="264"/>
+        <location filename="../../view/pages/setting_page.py" line="291"/>
         <source>在系统启动时静默运行 Ghost Downloader</source>
         <translation>在系統啟動時悄悄運行 Ghost Downloader</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="271"/>
+        <location filename="../../view/pages/setting_page.py" line="298"/>
         <source>剪贴板监听</source>
         <translation>剪貼簿監視器</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="272"/>
+        <location filename="../../view/pages/setting_page.py" line="299"/>
         <source>剪贴板监听器将自动检测剪贴板中的链接并添加下载任务</source>
         <translation>剪貼簿監聽器會自動偵測剪貼簿中的連結並新增下載任務</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="280"/>
+        <location filename="../../view/pages/setting_page.py" line="307"/>
         <source>打开作者的个人空间</source>
         <translation>開啟作者的個人空間</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="282"/>
+        <location filename="../../view/pages/setting_page.py" line="309"/>
         <source>了解作者</source>
         <translation>關於作者</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="283"/>
+        <location filename="../../view/pages/setting_page.py" line="310"/>
         <source>发现更多 {} 的作品</source>
         <translation>發現更多 {} 的作品</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="288"/>
-        <location filename="../../view/pages/setting_page.py" line="290"/>
+        <location filename="../../view/pages/setting_page.py" line="315"/>
+        <location filename="../../view/pages/setting_page.py" line="317"/>
         <source>提供反馈</source>
         <translation>提供反饋</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="291"/>
+        <location filename="../../view/pages/setting_page.py" line="318"/>
         <source>通过提供反馈来帮助我们改进 Ghost Downloader</source>
         <translation>提供反饋幫助我們改進 Ghost Downloader</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="296"/>
+        <location filename="../../view/pages/setting_page.py" line="323"/>
         <source>查看日志</source>
         <translation type="unfinished">查看日志</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="301"/>
+        <location filename="../../view/pages/setting_page.py" line="328"/>
         <source>检查更新</source>
         <translation>檢查更新</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="333"/>
+        <location filename="../../view/pages/setting_page.py" line="363"/>
         <source>已配置</source>
         <translation type="unfinished">已配置</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="333"/>
+        <location filename="../../view/pages/setting_page.py" line="363"/>
         <source>重启软件后生效</source>
         <translation>重啟軟體後生效</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="350"/>
+        <location filename="../../view/pages/setting_page.py" line="380"/>
         <source>已复制配对令牌</source>
         <translation type="unfinished">已复制配对令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="362"/>
+        <location filename="../../view/pages/setting_page.py" line="392"/>
         <source>已重新生成配对令牌</source>
         <translation type="unfinished">已重新生成配对令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="363"/>
+        <location filename="../../view/pages/setting_page.py" line="393"/>
         <source>新令牌已复制到剪贴板</source>
         <translation type="unfinished">新令牌已复制到剪贴板</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="373"/>
+        <location filename="../../view/pages/setting_page.py" line="403"/>
         <source>选择导出路径</source>
         <translation>選擇匯出路徑</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="384"/>
+        <location filename="../../view/pages/setting_page.py" line="414"/>
         <source>安装指南</source>
         <translation>安裝手冊</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="385"/>
+        <location filename="../../view/pages/setting_page.py" line="415"/>
         <source>请按照步骤安装浏览器扩展</source>
         <translation>請依照步驟安裝瀏覽器擴充功能</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="483"/>
+        <location filename="../../view/pages/setting_page.py" line="513"/>
         <source>警告</source>
         <translation type="unfinished">警告</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="484"/>
+        <location filename="../../view/pages/setting_page.py" line="514"/>
         <source>鬼知道你用的是什么平台？</source>
         <translation>鬼知道你用的是什麼平台？</translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="529"/>
+        <source>当前模式：区网
+本机：{}
+区网：{}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="531"/>
+        <source>当前模式：区网
+本机：{}
+区网地址获取失败</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="533"/>
+        <source>当前模式：仅本机
+本机：{}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>当前模式：区网\n本机：{}\n区网：{}</source>
+        <translation type="vanished">目前模式：區網\n本機：{}\n區網：{}</translation>
+    </message>
+    <message>
+        <source>当前模式：区网\n本机：{}\n区网地址获取失败</source>
+        <translation type="vanished">目前模式：區網\n本機：{}\n無法取得區網位址</translation>
+    </message>
+    <message>
+        <source>当前模式：仅本机\n本机：{}</source>
+        <translation type="vanished">目前模式：僅本機\n本機：{}</translation>
     </message>
 </context>
 <context>
