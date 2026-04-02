@@ -123,6 +123,10 @@ export interface PopupStatePayload {
   selectedMediaTabId: number | null;
   selectedMediaIndex: number;
   mediaPlaybackState: MediaPlaybackState;
+
+  domainBlacklist: string;
+  typeBlacklist: string;
+  sizeBlacklistMB: string;
 }
 
 export interface DesktopRequestResult {

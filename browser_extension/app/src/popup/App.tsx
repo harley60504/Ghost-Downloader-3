@@ -106,6 +106,12 @@ export function App({
             themePreference={themePreference}
             resolvedThemePreference={resolvedThemePreference}
             onThemePreferenceChange={onThemePreferenceChange}
+            domainBlacklist={bridge.domainBlacklist}
+            typeBlacklist={bridge.typeBlacklist}
+            sizeBlacklistMB={bridge.sizeBlacklistMB}
+            onSaveDomainBlacklist={bridge.saveDomainBlacklist}
+            onSaveTypeBlacklist={bridge.saveTypeBlacklist}
+            onSaveSizeBlacklist={bridge.saveSizeBlacklist}
           />
         ) : null}
       </main>
