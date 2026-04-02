@@ -7,7 +7,7 @@ from time import sleep
 from typing import TYPE_CHECKING, Callable
 
 from niquests.cookies import RequestsCookieJar, cookiejar_from_dict
-from niquests.utils import getproxies
+from urllib.request import getproxies
 from PySide6.QtCore import QUrl, Qt, QProcess, QStandardPaths
 from PySide6.QtGui import QDesktopServices
 from loguru import logger
