@@ -72,6 +72,12 @@ const DOWNLOAD_EXTENSIONS = new Set(["zip", "7z", "rar", "pdf", "exe", "msi", "d
 export function createResourceBridge(options: {
   sendDesktopRequest: DesktopRequestSender;
   isDesktopReady: () => boolean;
+  shouldBlockFirefoxIntercept: (input: {
+    url: string;
+    filename: string;
+    mime: string;
+    size: number;
+  }) => boolean;
 }) {
   let bridgePersistTimer: number | null = null;
   let bridgeStateReady = false;
@@ -83,67 +89,6 @@ export function createResourceBridge(options: {
   const rangeRequestIds = new Set<string>();
   const headerSnapshotsByUrl = new Map<string, BridgeHeaderSnapshot>();
 
-  function tryInterceptFirefoxDownload(
-    details: chrome.webRequest.OnHeadersReceivedDetails,
-  ): chrome.webRequest.BlockingResponse | void {
-    if (!isCapturableUrl(details.url)) {
-      return;
-    }
-
-    if (details.method && details.method.toUpperCase() !== "GET") {
-      return;
-    }
-
-    if (details.statusCode < 200 || details.statusCode >= 400) {
-      return;
-    }
-
-    const responseMeta = getResponseHeadersValue(details.responseHeaders);
-
-    const shouldIntercept =
-      isAttachmentResponse(details.responseHeaders) ||
-      shouldCaptureCatCatchResponse(
-        details as chrome.webRequest.OnResponseStartedDetails,
-        responseMeta,
-      );
-
-    if (!shouldIntercept) {
-      return;
-    }
-
-    const filename = resolveNetworkResourceFilename(details.url, responseMeta);
-    const headers = resolveHeadersForDownload(details.url);
-    const referer = headers.referer || details.initiator || "";
-
-    if (referer && !headers.referer) {
-      headers.referer = referer;
-    }
-
-    void (async () => {
-      try {
-        const result = await options.sendDesktopRequest<DesktopRequestResult>({
-          type: "create_task",
-          source: "download",
-          title: filename,
-          payload: {
-            url: details.url,
-            headers,
-            filename,
-            size: responseMeta.size,
-            supportsRange: responseMeta.supportsRange,
-          },
-        });
-
-        if (result.ok) {
-          await openActionPopup();
-        }
-      } catch {
-        // ignore
-      }
-    })();
-
-    return { cancel: true };
-  }
   function normalizeHeaders(headers: Record<string, string> | undefined): Record<string, string> {
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(headers ?? {})) {
@@ -322,6 +267,7 @@ export function createResourceBridge(options: {
 
     return meta;
   }
+
   function getHeaderValue(
     headers: chrome.webRequest.HttpHeader[] | undefined,
     name: string,
@@ -337,12 +283,14 @@ export function createResourceBridge(options: {
     }
     return "";
   }
+
   function isAttachmentResponse(
     headers: chrome.webRequest.HttpHeader[] | undefined,
   ): boolean {
     const contentDisposition = getHeaderValue(headers, "content-disposition");
     return /^attachment/i.test(contentDisposition);
   }
+
   function filenameFromContentDisposition(value: string): string {
     if (!value) {
       return "";
@@ -421,7 +369,9 @@ export function createResourceBridge(options: {
       return false;
     }
 
-    const extension = fileExtension(filenameFromContentDisposition(responseMeta.attachment) || filenameFromUrl(details.url));
+    const extension = fileExtension(
+      filenameFromContentDisposition(responseMeta.attachment) || filenameFromUrl(details.url),
+    );
 
     if (details.type === "media") {
       return true;
@@ -896,9 +846,9 @@ export function createResourceBridge(options: {
       mime: responseMeta.type,
       size: responseMeta.size,
       supportsRange:
-        responseMeta.supportsRange
-        || details.statusCode === 206
-        || requestHadRange,
+        responseMeta.supportsRange ||
+        details.statusCode === 206 ||
+        requestHadRange,
       referer,
       requestHeaders: normalizedRequestHeaders,
       capturedAt: Date.now(),
@@ -913,14 +863,92 @@ export function createResourceBridge(options: {
     return Boolean(interceptDownloads && options.isDesktopReady() && isCapturableUrl(finalUrl));
   }
 
+  function tryInterceptFirefoxDownload(
+    details: chrome.webRequest.OnHeadersReceivedDetails,
+  ): chrome.webRequest.BlockingResponse | void {
+    if (!options.isDesktopReady()) {
+      return;
+    }
+
+    if (!isCapturableUrl(details.url)) {
+      return;
+    }
+
+    if (details.method && details.method.toUpperCase() !== "GET") {
+      return;
+    }
+
+    if (details.statusCode < 200 || details.statusCode >= 400) {
+      return;
+    }
+
+    const responseMeta = getResponseHeadersValue(details.responseHeaders);
+
+    const shouldIntercept =
+      isAttachmentResponse(details.responseHeaders) ||
+      shouldCaptureCatCatchResponse(
+        details as chrome.webRequest.OnResponseStartedDetails,
+        responseMeta,
+      );
+
+    if (!shouldIntercept) {
+      return;
+    }
+
+    const filename = resolveNetworkResourceFilename(details.url, responseMeta);
+
+    if (
+      options.shouldBlockFirefoxIntercept({
+        url: details.url,
+        filename,
+        mime: responseMeta.type,
+        size: responseMeta.size,
+      })
+    ) {
+      return;
+    }
+
+    const headers = resolveHeadersForDownload(details.url);
+    const referer = headers.referer || details.initiator || "";
+
+    if (referer && !headers.referer) {
+      headers.referer = referer;
+    }
+
+    void (async () => {
+      try {
+        const result = await options.sendDesktopRequest<DesktopRequestResult>({
+          type: "create_task",
+          source: "download",
+          title: filename,
+          payload: {
+            url: details.url,
+            headers,
+            filename,
+            size: responseMeta.size,
+            supportsRange: responseMeta.supportsRange,
+          },
+        });
+
+        if (result.ok) {
+          await openActionPopup();
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return { cancel: true };
+  }
+
   async function handoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem) {
     const finalUrl = downloadItem.finalUrl || downloadItem.url;
     const matchedResource = findResourceByUrl(finalUrl);
     const resolvedFilename =
-      trimFilename(downloadItem.filename)
-      || trimFilename(matchedResource?.filename ?? "")
-      || trimFilename(filenameFromUrl(finalUrl))
-      || "resource";
+      trimFilename(downloadItem.filename) ||
+      trimFilename(matchedResource?.filename ?? "") ||
+      trimFilename(filenameFromUrl(finalUrl)) ||
+      "resource";
 
     const headers = resolveHeadersForDownload(finalUrl);
     if (downloadItem.referrer && !headers.referer) {
@@ -1063,7 +1091,10 @@ export function createResourceBridge(options: {
     }
   }
 
-  function buildPopupStateData(resolvedTabId: number | null, activeTab: chrome.tabs.Tab | null): Pick<
+  function buildPopupStateData(
+    resolvedTabId: number | null,
+    activeTab: chrome.tabs.Tab | null,
+  ): Pick<
     PopupStatePayload,
     "resourceState" | "resourceStateMessage" | "currentResources" | "otherResources" | "activePageDomain"
   > {
