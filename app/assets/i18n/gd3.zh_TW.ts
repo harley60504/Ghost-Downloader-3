@@ -1584,62 +1584,62 @@ FFmpeg: {2}</translation>
         <translation>若要從瀏覽器接收下載資訊，請安裝瀏覽器擴充功能並使用</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="129"/>
+        <location filename="../../view/pages/setting_page.py" line="137"/>
         <source>刷新</source>
         <translation>重新整理</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="131"/>
+        <location filename="../../view/pages/setting_page.py" line="139"/>
         <source>服务地址</source>
         <translation>服務位址</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="132"/>
+        <location filename="../../view/pages/setting_page.py" line="140"/>
         <source>正在读取服务地址</source>
         <translation>正在讀取服務位址</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="138"/>
+        <location filename="../../view/pages/setting_page.py" line="146"/>
         <source>服务端口</source>
         <translation>服務連接埠</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="139"/>
+        <location filename="../../view/pages/setting_page.py" line="147"/>
         <source>浏览器扩展连接 Ghost Downloader 时使用的端口</source>
         <translation>瀏覽器擴充功能連線到 Ghost Downloader 時使用的連接埠</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="149"/>
+        <location filename="../../view/pages/setting_page.py" line="157"/>
         <source>收到下载信息时弹出窗口</source>
         <translation>收到下載資訊時跳出來視窗</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="150"/>
+        <location filename="../../view/pages/setting_page.py" line="158"/>
         <source>收到下载信息时弹出窗口，方便您调整下载参数</source>
         <translation>接收下載資訊時會彈出視窗，方便您調整下載參數</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="156"/>
+        <location filename="../../view/pages/setting_page.py" line="164"/>
         <source>复制令牌</source>
         <translation>複製令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="158"/>
+        <location filename="../../view/pages/setting_page.py" line="166"/>
         <source>配对令牌</source>
         <translation>配對令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="164"/>
+        <location filename="../../view/pages/setting_page.py" line="172"/>
         <source>重新生成令牌</source>
         <translation>重新產生令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="172"/>
+        <location filename="../../view/pages/setting_page.py" line="130"/>
         <source>启用区域网络访问</source>
         <translation>啟用區域網路存取</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="173"/>
+        <location filename="../../view/pages/setting_page.py" line="131"/>
         <source>关闭时仅允许本机连接，开启后允许局域网设备连接</source>
         <translation>關閉時僅允許本機連線，開啟後允許區域網路裝置連線</translation>
     </message>

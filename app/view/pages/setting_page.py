@@ -125,6 +125,14 @@ class SettingPage(ScrollArea):
             self.browserGroup,
         )
         self.browserGroup.addSettingCard(self.browserExtensionCard)
+        self.browserLanModeCard = SwitchSettingCard(
+            FluentIcon.GLOBE,
+            self.tr("启用区域网络访问"),
+            self.tr("关闭时仅允许本机连接，开启后允许局域网设备连接"),
+            cfg.browserExtensionLanMode,
+            self.browserGroup,
+        )
+        self.browserGroup.addSettingCard(self.browserLanModeCard)
         self.browserAddressCard = PushSettingCard(
             self.tr("刷新"),
             FluentIcon.LINK,
@@ -167,14 +175,6 @@ class SettingPage(ScrollArea):
         self.browserPairTokenCard.hBoxLayout.insertWidget(
             7, self.regeneratePairTokenButton, 0, Qt.AlignmentFlag.AlignRight
         )
-        self.browserLanModeCard = SwitchSettingCard(
-            FluentIcon.GLOBE,
-            self.tr("启用区域网络访问"),
-            self.tr("关闭时仅允许本机连接，开启后允许局域网设备连接"),
-            cfg.browserExtensionLanMode,
-            self.browserGroup,
-        )
-        self.browserGroup.addSettingCard(self.browserLanModeCard)
         self.installExtensionCard = PushSettingCard(
             self.tr("导出 Chromium 扩展"),
             FluentIcon.DICTIONARY,
