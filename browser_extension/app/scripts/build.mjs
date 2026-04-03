@@ -33,12 +33,18 @@ function createManifest(target) {
       scripts: ["background.js"],
       type: "module",
     };
+
     manifest.browser_specific_settings = {
       gecko: {
         id: firefoxAddonId,
         strict_min_version: "113.0",
       },
     };
+
+    manifest.permissions = Array.from(
+      new Set([...(manifest.permissions ?? []), "webRequestBlocking"])
+    );
+
     delete manifest.minimum_chrome_version;
     return manifest;
   }

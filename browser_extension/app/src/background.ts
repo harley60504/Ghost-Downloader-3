@@ -24,6 +24,7 @@
   import {
     getOnSendHeadersExtraInfoSpec,
     supportsDownloadDeterminingFilename,
+    isFirefoxExtension,
   } from "./shared/browser";
 
   const desktopBridge = createDesktopBridge();
@@ -234,6 +235,16 @@
     { urls: ["<all_urls>"] },
     ["responseHeaders"],
   );
+
+  if (isFirefoxExtension()) {
+    chrome.webRequest.onHeadersReceived.addListener(
+      (details) => {
+        return resourceBridge.tryInterceptFirefoxDownload(details);
+      },
+      { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
+      ["blocking", "responseHeaders"],
+    );
+  }
 
   chrome.webRequest.onErrorOccurred.addListener(
     (details) => {
