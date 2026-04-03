@@ -83,6 +83,67 @@ export function createResourceBridge(options: {
   const rangeRequestIds = new Set<string>();
   const headerSnapshotsByUrl = new Map<string, BridgeHeaderSnapshot>();
 
+  function tryInterceptFirefoxDownload(
+    details: chrome.webRequest.OnHeadersReceivedDetails,
+  ): chrome.webRequest.BlockingResponse | void {
+    if (!isCapturableUrl(details.url)) {
+      return;
+    }
+
+    if (details.method && details.method.toUpperCase() !== "GET") {
+      return;
+    }
+
+    if (details.statusCode < 200 || details.statusCode >= 400) {
+      return;
+    }
+
+    const responseMeta = getResponseHeadersValue(details.responseHeaders);
+
+    const shouldIntercept =
+      isAttachmentResponse(details.responseHeaders) ||
+      shouldCaptureCatCatchResponse(
+        details as chrome.webRequest.OnResponseStartedDetails,
+        responseMeta,
+      );
+
+    if (!shouldIntercept) {
+      return;
+    }
+
+    const filename = resolveNetworkResourceFilename(details.url, responseMeta);
+    const headers = resolveHeadersForDownload(details.url);
+    const referer = headers.referer || details.initiator || "";
+
+    if (referer && !headers.referer) {
+      headers.referer = referer;
+    }
+
+    void (async () => {
+      try {
+        const result = await options.sendDesktopRequest<DesktopRequestResult>({
+          type: "create_task",
+          source: "download",
+          title: filename,
+          payload: {
+            url: details.url,
+            headers,
+            filename,
+            size: responseMeta.size,
+            supportsRange: responseMeta.supportsRange,
+          },
+        });
+
+        if (result.ok) {
+          await openActionPopup();
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return { cancel: true };
+  }
   function normalizeHeaders(headers: Record<string, string> | undefined): Record<string, string> {
     const result: Record<string, string> = {};
     for (const [key, value] of Object.entries(headers ?? {})) {
@@ -261,7 +322,27 @@ export function createResourceBridge(options: {
 
     return meta;
   }
-
+  function getHeaderValue(
+    headers: chrome.webRequest.HttpHeader[] | undefined,
+    name: string,
+  ): string {
+    const lowered = name.toLowerCase();
+    for (const header of headers ?? []) {
+      if (!header.name) {
+        continue;
+      }
+      if (header.name.toLowerCase() === lowered) {
+        return String(header.value ?? "").trim();
+      }
+    }
+    return "";
+  }
+  function isAttachmentResponse(
+    headers: chrome.webRequest.HttpHeader[] | undefined,
+  ): boolean {
+    const contentDisposition = getHeaderValue(headers, "content-disposition");
+    return /^attachment/i.test(contentDisposition);
+  }
   function filenameFromContentDisposition(value: string): string {
     if (!value) {
       return "";
@@ -1055,5 +1136,6 @@ export function createResourceBridge(options: {
     mergeResources,
     sendResource,
     setLastActiveTab,
+    tryInterceptFirefoxDownload,
   };
 }
