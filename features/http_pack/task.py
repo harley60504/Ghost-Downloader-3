@@ -16,6 +16,34 @@ from app.supports.config import DEFAULT_HEADERS, cfg
 from app.supports.sysio import ftruncate, pwrite
 from app.supports.utils import getProxies, splitRequestHeadersAndCookies
 
+def _parsePositiveContentLength(headers: dict[str, str]) -> int:
+    value = headers.get("content-length", "").strip()
+    if not value:
+        return SpecialFileSize.UNKNOWN
+
+    try:
+        length = int(value)
+    except ValueError:
+        return SpecialFileSize.UNKNOWN
+
+    return length if length > 0 else SpecialFileSize.UNKNOWN
+
+
+def _parseContentRangeTotal(headers: dict[str, str]) -> int:
+    contentRange = headers.get("content-range", "").strip()
+    if not contentRange or "/" not in contentRange:
+        return SpecialFileSize.UNKNOWN
+
+    _, _, total = contentRange.rpartition("/")
+    if not total or total == "*":
+        return SpecialFileSize.UNKNOWN
+
+    try:
+        size = int(total)
+    except ValueError:
+        return SpecialFileSize.UNKNOWN
+
+    return size if size > 0 else SpecialFileSize.UNKNOWN
 
 @dataclass
 class HttpTaskStage(TaskStage):
@@ -80,13 +108,9 @@ class HttpTask(Task):
 
     def __hash__(self):
         return hash(self.taskId)
-    
+
     def applyPayloadToTask(self, payload: dict[str, Any]):
         super().applyPayloadToTask(payload)
-        # TODO 更新 Headers 有时需要根据单独任务进行更新
-        # headers = payload.get("headers")
-        # if isinstance(headers, dict):
-        #     self.headers = headers
 
         proxies = payload.get("proxies")
         if isinstance(proxies, dict):
@@ -101,12 +125,11 @@ class HttpTask(Task):
             if not isinstance(stage, HttpTaskStage):
                 continue
 
-            # if isinstance(headers, dict):
-            #     stage.headers = headers
             if isinstance(proxies, dict):
                 stage.proxies = proxies
             if isinstance(blockNum, int):
                 stage.blockNum = blockNum
+
 
 @dataclass
 class HttpSubworker:
@@ -122,6 +145,31 @@ class HttpWorker(Worker):
         self.speedHistory = []
         self.accelCheckTime = 0
         self.requestHeaders, self.requestCookies = splitRequestHeadersAndCookies(stage.headers)
+
+    def _updateFileSizeFromResponse(self, res):
+        """
+        在真正开始下载后，尝试从实际响应头补齐文件大小。
+        只在当前 fileSize 未知时更新，避免覆盖已知值。
+        """
+        if self.stage.fileSize not in {SpecialFileSize.UNKNOWN, 0}:
+            return
+
+        headers = {str(k).lower(): str(v) for k, v in res.headers.items()}
+
+        fileSize = _parseContentRangeTotal(headers)
+        if fileSize == SpecialFileSize.UNKNOWN:
+            fileSize = _parsePositiveContentLength(headers)
+
+        if fileSize in {SpecialFileSize.UNKNOWN, 0}:
+            return
+
+        self.stage.fileSize = fileSize
+
+        task = getattr(self.stage, "_task", None)
+        if task is not None:
+            task.fileSize = fileSize
+
+        logger.info("{} 运行时补齐文件大小: {}", self.stage.resolvePath, fileSize)
 
     def reassignSubworker(self):
         if self.stage.fileSize <= 0:
@@ -162,14 +210,17 @@ class HttpWorker(Worker):
                         if res.status_code != 206:
                             raise Exception(f"服务器拒绝了范围请求，状态码：{res.status_code}")
 
+                        self._updateFileSizeFromResponse(res)
+
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
 
                             await cfg.checkSpeedLimitation()
+                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
+                            subworker.progress += chunkLen
+                            cfg.globalSpeed += chunkLen
                     finally:
                         await res.close()
 
@@ -181,6 +232,7 @@ class HttpWorker(Worker):
                         subworker,
                     )
                     await asyncio.sleep(5)
+
         elif subworker.end == SpecialFileSize.NOT_SUPPORTED:  # 不支持断点续传
             while True:
                 try:
@@ -201,14 +253,17 @@ class HttpWorker(Worker):
                         if res.status_code not in {200, 206}:
                             raise Exception(f"服务器返回了异常状态码：{res.status_code}")
 
+                        self._updateFileSizeFromResponse(res)
+
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
 
                             await cfg.checkSpeedLimitation()
+                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
+                            subworker.progress += chunkLen
+                            cfg.globalSpeed += chunkLen
                     finally:
                         await res.close()
 
@@ -220,6 +275,7 @@ class HttpWorker(Worker):
                         self.stage.resolvePath,
                     )
                     await asyncio.sleep(5)
+
         else:  # 正常下载
             while subworker.progress < subworker.end:
                 try:
@@ -237,18 +293,20 @@ class HttpWorker(Worker):
                         if res.status_code != 206:
                             raise Exception(f"服务器拒绝了范围请求，状态码：{res.status_code}")
 
+                        self._updateFileSizeFromResponse(res)
+
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
+
                             await cfg.checkSpeedLimitation()
                             offset = subworker.progress
+                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, offset)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
+                            subworker.progress += chunkLen
+                            cfg.globalSpeed += chunkLen
                             if subworker.progress >= subworker.end:
                                 break
-                    except Exception as e:
-                        raise e
                     finally:
                         await res.close()
 
@@ -351,8 +409,9 @@ class HttpWorker(Worker):
             try:
                 with open(recordFile, "rb") as f:
                     while True:
-                        data = f.read(24)  # 每个 worker 有 3 个 64 位的无符号整数，共 24 字节
-                        if not data: break
+                        data = f.read(24)
+                        if not data:
+                            break
 
                         start, process, end = unpack("<QQQ", data)
                         self.subworkers.append(HttpSubworker(start, process, end))
@@ -374,14 +433,14 @@ class HttpWorker(Worker):
             self.subworkers.append(HttpSubworker(0, 0, SpecialFileSize.UNKNOWN))
             return
 
-        step = self.stage.fileSize // self.stage.blockNum  # 每块大小
+        step = self.stage.fileSize // self.stage.blockNum
         start = 0
-        for i in range(self.stage.blockNum - 1):
+        for _ in range(self.stage.blockNum - 1):
             end = start + step - 1
             self.subworkers.append(HttpSubworker(start, start, end))
             start = end + 1
 
-        self.subworkers.append(HttpSubworker(start, start, self.stage.fileSize - 1)) # Http 请求是以 0 开头的
+        self.subworkers.append(HttpSubworker(start, start, self.stage.fileSize - 1))
 
     def _cleanupRecordFile(self):
         target = Path(self.stage.resolvePath + ".ghd")
@@ -392,7 +451,6 @@ class HttpWorker(Worker):
             logger.opt(exception=e).error("failed to cleanup temporary file {}", target)
 
     async def run(self):
-        # prepare async components
         self.taskGroup = TaskGroup()
         self.subworkers: list[HttpSubworker] = []
         self.client = niquests.AsyncSession(happy_eyeballs=True, pool_maxsize=256)
