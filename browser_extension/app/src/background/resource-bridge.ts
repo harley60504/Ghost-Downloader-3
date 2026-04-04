@@ -181,8 +181,32 @@ export function createResourceBridge(options: {
     }
   }
 
+  function normalizeUrlWithoutSearch(value: string, allowBlob = false): string {
+    const text = String(value || "").trim();
+    if (!text) {
+      return "";
+    }
+
+    if (allowBlob && text.startsWith("blob:")) {
+      return text;
+    }
+
+    try {
+      const url = new URL(text);
+      url.search = "";
+      url.hash = "";
+      return url.toString();
+    } catch {
+      return text.split(/[?#]/, 1)[0] ?? text;
+    }
+  }
+
   function normalizeResourceUrl(value: string): string {
     return normalizeUrl(value, true);
+  }
+
+  function normalizeResourceUrlWithoutSearch(value: string): string {
+    return normalizeUrlWithoutSearch(value, true);
   }
 
   function normalizeCapturedResource(resource: CapturedResource): CapturedResource {
@@ -652,6 +676,48 @@ export function createResourceBridge(options: {
     return matched;
   }
 
+  function findResourceByUrlWithoutSearch(rawUrl: string): CapturedResource | null {
+    const normalizedUrl = normalizeResourceUrlWithoutSearch(rawUrl);
+    let matched: CapturedResource | null = null;
+    for (const resource of resourcesById.values()) {
+      if (normalizeResourceUrlWithoutSearch(resource.url) !== normalizedUrl) {
+        continue;
+      }
+      if (matched == null || resource.capturedAt > matched.capturedAt) {
+        matched = resource;
+      }
+    }
+    return matched;
+  }
+
+  function findResourceByFilenameLike(rawUrl: string): CapturedResource | null {
+    const targetFilename = trimFilename(filenameFromUrl(rawUrl) || "").toLowerCase();
+    if (!targetFilename) {
+      return null;
+    }
+
+    let matched: CapturedResource | null = null;
+    for (const resource of resourcesById.values()) {
+      const candidate = trimFilename(resource.filename || "").toLowerCase();
+      if (!candidate || candidate !== targetFilename) {
+        continue;
+      }
+      if (matched == null || resource.capturedAt > matched.capturedAt) {
+        matched = resource;
+      }
+    }
+    return matched;
+  }
+
+  function findBestResourceForDownload(rawUrl: string): CapturedResource | null {
+    return (
+      findResourceByUrl(rawUrl) ||
+      findResourceByUrlWithoutSearch(rawUrl) ||
+      findResourceByFilenameLike(rawUrl) ||
+      null
+    );
+  }
+
   function markResourceSent(resourceId: string) {
     const resource = resourcesById.get(resourceId);
     if (!resource) {
@@ -687,8 +753,31 @@ export function createResourceBridge(options: {
     return headerSnapshotsByUrl.get(url) ?? null;
   }
 
+  function resolveHeaderSnapshotLoosely(url: string): BridgeHeaderSnapshot | null {
+    const exact = resolveHeaderSnapshot(url);
+    if (exact) {
+      return exact;
+    }
+
+    const normalizedWithoutSearch = normalizeUrlWithoutSearch(url);
+    if (!normalizedWithoutSearch) {
+      return null;
+    }
+
+    let matched: BridgeHeaderSnapshot | null = null;
+    for (const snapshot of headerSnapshotsByUrl.values()) {
+      if (normalizeUrlWithoutSearch(snapshot.url) !== normalizedWithoutSearch) {
+        continue;
+      }
+      if (matched == null || snapshot.capturedAt > matched.capturedAt) {
+        matched = snapshot;
+      }
+    }
+    return matched;
+  }
+
   function resolveHeadersForDownload(url: string): Record<string, string> {
-    return { ...(resolveHeaderSnapshot(url)?.headers ?? {}) };
+    return { ...(resolveHeaderSnapshotLoosely(url)?.headers ?? {}) };
   }
 
   function otherResourcesForTab(activeTabId: number | null): CapturedResource[] {
@@ -943,10 +1032,12 @@ export function createResourceBridge(options: {
 
   async function handoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem) {
     const finalUrl = downloadItem.finalUrl || downloadItem.url;
-    const matchedResource = findResourceByUrl(finalUrl);
+    const matchedResource = findBestResourceForDownload(finalUrl);
+    const headerSnapshot = resolveHeaderSnapshotLoosely(finalUrl);
+
     const resolvedFilename =
-      trimFilename(downloadItem.filename) ||
       trimFilename(matchedResource?.filename ?? "") ||
+      trimFilename(downloadItem.filename) ||
       trimFilename(filenameFromUrl(finalUrl)) ||
       "resource";
 
@@ -954,6 +1045,18 @@ export function createResourceBridge(options: {
     if (downloadItem.referrer && !headers.referer) {
       headers.referer = downloadItem.referrer;
     }
+
+    const resolvedSize =
+      matchedResource?.size && matchedResource.size > 0
+        ? matchedResource.size
+        : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+          ? downloadItem.totalBytes
+          : 0;
+
+    const resolvedSupportsRange =
+      matchedResource?.supportsRange ??
+      headerSnapshot?.supportsRange ??
+      (downloadItem.canResume === true);
 
     try {
       const result = await options.sendDesktopRequest<DesktopRequestResult>({
@@ -964,11 +1067,8 @@ export function createResourceBridge(options: {
           url: finalUrl,
           headers,
           filename: resolvedFilename,
-          size:
-            typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-              ? downloadItem.totalBytes
-              : matchedResource?.size ?? 0,
-          supportsRange: matchedResource?.supportsRange ?? downloadItem.canResume === true,
+          size: resolvedSize,
+          supportsRange: resolvedSupportsRange,
         },
       });
       if (result.ok) {
@@ -1156,6 +1256,7 @@ export function createResourceBridge(options: {
     captureNetworkResource,
     capturePageResource,
     clearRequestHeaders,
+    findBestResourceForDownload,
     handoffBrowserDownload,
     shouldHandoffBrowserDownload,
     handleNavigationCommitted,

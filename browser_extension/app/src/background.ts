@@ -308,16 +308,29 @@ async function interceptBrowserDownload(
   options: { eraseFromHistory?: boolean } = {},
 ) {
   const rawUrl = String(downloadItem.finalUrl || downloadItem.url || "");
+  const matchedResource = resourceBridge.findBestResourceForDownload(rawUrl);
 
-  if (isDomainBlacklisted(rawUrl)) {
-    return;
-  }
+  const blacklistFilename =
+    matchedResource?.filename ||
+    String(downloadItem.filename || "");
+  const blacklistMime = matchedResource?.mime || "";
+  const blacklistSize =
+    matchedResource?.size && matchedResource.size > 0
+      ? matchedResource.size
+      : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+        ? downloadItem.totalBytes
+        : typeof downloadItem.fileSize === "number" && downloadItem.fileSize > 0
+          ? downloadItem.fileSize
+          : -1;
 
-  if (isTypeBlacklisted(downloadItem)) {
-    return;
-  }
-
-  if (isSizeBlacklisted(downloadItem)) {
+  if (
+    shouldBlockByBlacklist({
+      url: rawUrl,
+      filename: blacklistFilename,
+      mime: blacklistMime,
+      size: blacklistSize > 0 ? blacklistSize : undefined,
+    })
+  ) {
     return;
   }
 
