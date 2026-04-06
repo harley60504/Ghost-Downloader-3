@@ -1,3 +1,6 @@
+<!-- To use the English pull request template, create your PR with `template=en.md`. -->
+<!-- Example: https://github.com/XiaoYouChR/Ghost-Downloader-3/compare/main...your-branch?quick_pull=1&template=en.md -->
+
 <!-- 🚨 请不要跳过或删除下面的信息，它们都是评估与测试所需的信息，完整填写有助于更快通过评审 🚨 -->
 <!-- 👉 一个 PR 最好只解决一个 Issue，除非这些问题彼此关联 -->
 <!-- 📝 请始终打开 PR 中的 `☑️ Allow edits by maintainers` 按钮，Ghost-Downloader-3 使用了较为严格的项目模板，维护者可以帮助你修改一些细微的错误或者格式问题 🎉 -->
