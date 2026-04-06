@@ -11,6 +11,9 @@
 > [!IMPORTANT]
 > Welcome to join the Ghost Downloader user group: [756042420](https://qm.qq.com/q/gPk6FR1Hby)
 
+> [!TIP]
+> If you'd like to help translate Ghost Downloader, welcome to join the Crowdin project: [ghost-downloader](https://crowdin.com/project/ghost-downloader)
+
 <!-- PROJECT LOGO -->
 <div align="center">
 
@@ -50,6 +53,9 @@
 |  🐧 **Linux**  |  `glibc 2.35+`   | `x86_64`/`arm64` |     ✅      |
 | 🪟 **Windows** |     `7 SP1+`     | `x86_64`/`arm64` |     ✅      |
 |  🍎 **macOS**  |     `13.0+`      | `x86_64`/`arm64` |     ✅      |
+
+> [!WARNING]
+> Qt `6.6+` no longer supports CPUs without the `AVX` instruction set.
 
 > [!TIP]
 > **Arch Linux AUR support**: Community-maintained packages `ghost-downloader-bin` and `ghost-downloader-git` are now available (Maintainer: [@zxp19821005](https://github.com/zxp19821005))

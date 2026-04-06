@@ -11,6 +11,9 @@
 > [!IMPORTANT]
 > 欢迎加入 Ghost Downloader 用户交流群 [756042420](https://qm.qq.com/q/gPk6FR1Hby)
 
+> [!TIP]
+> 如果你想为 Ghost Downloader 贡献翻译，欢迎前往 Crowdin 项目页: [ghost-downloader](https://crowdin.com/project/ghost-downloader)
+
 <!-- PROJECT LOGO -->
 <div align="center">
 
@@ -50,6 +53,9 @@
 |  🐧 **Linux**  | `glibc 2.35+` | `x86_64`/`arm64` | ✅  |
 | 🪟 **Windows** |   `7 SP1+`    | `x86_64`/`arm64` | ✅  |
 |  🍎 **macOS**  |    `13.0+`    | `x86_64`/`arm64` | ✅  |
+
+> [!WARNING]
+> 由于 Qt `6.6+` 已经不再支持 `不支持 AVX 指令集的 CPU`
 
 > [!TIP]  
 > **Arch Linux AUR 支持**：现已可通过社区维护的软件包 `ghost-downloader-bin` 和 `ghost-downloader-git` 进行安装（维护者：[@zxp19821005](https://github.com/zxp19821005)）
