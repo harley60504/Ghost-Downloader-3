@@ -112,6 +112,7 @@ function createEmptyPayload(): PopupStatePayload {
     domainBlacklist: "",
     typeBlacklist: "",
     sizeBlacklistMB: "",
+    notifyOnTaskCreated: true,
   };
 }
 
@@ -147,6 +148,7 @@ export function usePopupBridge(activeView: PopupView) {
   const [isRefreshingConnection, setIsRefreshingConnection] = useState(false);
   const [isUpdatingIntercept, setIsUpdatingIntercept] = useState(false);
   const [isUpdatingMedia, setIsUpdatingMedia] = useState(false);
+  const [isUpdatingNotifyOnTaskCreated, setIsUpdatingNotifyOnTaskCreated] = useState(false);
 
   const mountedRef = useRef(true);
   const flashTimerRef = useRef<number | null>(null);
@@ -164,7 +166,6 @@ export function usePopupBridge(activeView: PopupView) {
     }
     setPayload(next);
   }, []);
-
   const setFlash = useCallback((message: string, tone: FlashTone = "neutral") => {
     if (!mountedRef.current) {
       return;
@@ -374,6 +375,27 @@ export function usePopupBridge(activeView: PopupView) {
       }
     },
     [setFlash],
+  );
+
+  const setNotifyOnTaskCreated = useCallback(
+    async (enabled: boolean) => {
+      setIsUpdatingNotifyOnTaskCreated(true);
+      try {
+        const next = await sendRuntimeMessage<PopupStatePayload>({
+          type: "popup_set_notify_on_task_created",
+          enabled,
+          view: requestView(activeViewRef.current),
+        });
+        applyPopupState(next);
+      } catch (error) {
+        setFlash(getErrorMessage(error, "更新任务通知设置失败"), "error");
+      } finally {
+        if (mountedRef.current) {
+          setIsUpdatingNotifyOnTaskCreated(false);
+        }
+      }
+    },
+    [applyPopupState, requestView, setFlash],
   );
 
   const refreshConnection = useCallback(async () => {
@@ -623,9 +645,12 @@ export function usePopupBridge(activeView: PopupView) {
     saveDomainBlacklist,
     saveTypeBlacklist,
     saveSizeBlacklist,
+    isUpdatingNotifyOnTaskCreated,
+    setNotifyOnTaskCreated,
     sortedTasks,
     isTaskBusy: (taskId: string) => busyTaskIds.has(taskId),
     isResourceBusy: (resourceId: string) => busyResourceIds.has(resourceId),
     isFeatureBusy: (featureKey: AdvancedFeatureKey) => busyFeatureKeys.has(featureKey),
+    
   };
 }

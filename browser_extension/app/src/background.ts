@@ -14,6 +14,7 @@ import {
   DOMAIN_BLACKLIST_KEY,
   TYPE_BLACKLIST_KEY,
   SIZE_BLACKLIST_KEY,
+  NOTIFY_ON_TASK_CREATED_KEY,
 } from "./background/constants";
 import {
   cancelDownload,
@@ -35,6 +36,7 @@ let interceptDownloads = true;
 let domainBlacklist: string[] = [];
 let typeBlacklist: string[] = [];
 let sizeBlacklistMB = "";
+let notifyOnTaskCreated = true;
 
 function parseRuleLines(value: string): string[] {
   return String(value ?? "")
@@ -69,14 +71,6 @@ function isTypeBlacklistedByMeta(filename: string, mime: string, rawUrl: string)
   });
 }
 
-function isTypeBlacklisted(downloadItem: chrome.downloads.DownloadItem): boolean {
-  return isTypeBlacklistedByMeta(
-    String(downloadItem.filename || ""),
-    "",
-    String(downloadItem.finalUrl || downloadItem.url || ""),
-  );
-}
-
 function isSizeBlacklistedByValue(sizeBytes: number): boolean {
   const raw = String(sizeBlacklistMB ?? "").trim();
   if (!raw) {
@@ -93,17 +87,6 @@ function isSizeBlacklistedByValue(sizeBytes: number): boolean {
   }
 
   return sizeBytes < thresholdMB * 1024 * 1024;
-}
-
-function isSizeBlacklisted(downloadItem: chrome.downloads.DownloadItem): boolean {
-  const sizeBytes =
-    typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-      ? downloadItem.totalBytes
-      : typeof downloadItem.fileSize === "number" && downloadItem.fileSize > 0
-        ? downloadItem.fileSize
-        : -1;
-
-  return isSizeBlacklistedByValue(sizeBytes);
 }
 
 function shouldBlockByBlacklist(input: {
@@ -127,12 +110,6 @@ function shouldBlockByBlacklist(input: {
   return false;
 }
 
-const resourceBridge = createResourceBridge({
-  isDesktopReady: () => desktopBridge.isReady(),
-  sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
-  shouldBlockFirefoxIntercept: shouldBlockByBlacklist,
-});
-
 function taskCounters(tasks: GenericTaskSummary[]) {
   return {
     total: tasks.length,
@@ -140,6 +117,27 @@ function taskCounters(tasks: GenericTaskSummary[]) {
     completed: tasks.filter((task) => task.status === "completed").length,
   };
 }
+
+async function showTaskCreatedNotification(message?: string) {
+  try {
+    await chrome.notifications.create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icon128.png"),
+      title: "Ghost Downloader",
+      message: message?.trim() || "新任务已成功加入 Ghost Downloader",
+    });
+  } catch (error) {
+    console.error("Notification failed:", error);
+  }
+}
+
+const resourceBridge = createResourceBridge({
+  isDesktopReady: () => desktopBridge.isReady(),
+  sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
+  shouldBlockFirefoxIntercept: shouldBlockByBlacklist,
+  shouldNotifyOnTaskCreated: () => notifyOnTaskCreated,
+  notifyTaskCreated: (message?: string) => showTaskCreatedNotification(message),
+});
 
 async function buildPopupState(options: {
   preferredTabId?: number | null;
@@ -175,11 +173,10 @@ async function buildPopupState(options: {
     selectedMediaTabId: mediaPanelState.selectedMediaTabId,
     selectedMediaIndex: mediaPanelState.selectedMediaIndex,
     mediaPlaybackState: mediaPanelState.playbackState,
-
     domainBlacklist: domainBlacklist.join("\n"),
     typeBlacklist: typeBlacklist.join("\n"),
     sizeBlacklistMB,
-
+    notifyOnTaskCreated,
     ...resourceState,
   };
 }
@@ -187,17 +184,20 @@ async function buildPopupState(options: {
 async function initialize() {
   const localState = await localStorageGet<{
     [INTERCEPT_DOWNLOADS_KEY]: boolean;
+    [NOTIFY_ON_TASK_CREATED_KEY]: boolean;
     [DOMAIN_BLACKLIST_KEY]: string;
     [TYPE_BLACKLIST_KEY]: string;
     [SIZE_BLACKLIST_KEY]: string;
   }>({
     [INTERCEPT_DOWNLOADS_KEY]: true,
+    [NOTIFY_ON_TASK_CREATED_KEY]: true,
     [DOMAIN_BLACKLIST_KEY]: "",
     [TYPE_BLACKLIST_KEY]: "",
     [SIZE_BLACKLIST_KEY]: "",
   });
 
   interceptDownloads = Boolean(localState[INTERCEPT_DOWNLOADS_KEY] ?? true);
+  notifyOnTaskCreated = Boolean(localState[NOTIFY_ON_TASK_CREATED_KEY] ?? true);
   domainBlacklist = parseRuleLines(String(localState[DOMAIN_BLACKLIST_KEY] ?? ""));
   typeBlacklist = parseRuleLines(String(localState[TYPE_BLACKLIST_KEY] ?? ""));
   sizeBlacklistMB = String(localState[SIZE_BLACKLIST_KEY] ?? "").trim();
@@ -237,6 +237,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
   if (changes[SIZE_BLACKLIST_KEY]) {
     sizeBlacklistMB = String(changes[SIZE_BLACKLIST_KEY].newValue ?? "").trim();
+  }
+  if (changes[NOTIFY_ON_TASK_CREATED_KEY]) {
+    notifyOnTaskCreated = Boolean(changes[NOTIFY_ON_TASK_CREATED_KEY].newValue ?? true);
   }
 });
 
@@ -446,7 +449,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "popup_send_resource") {
     void (async () => {
-      sendResponse(await resourceBridge.sendResource(String(message.resourceId ?? "")));
+      const result = await resourceBridge.sendResource(String(message.resourceId ?? ""));
+      if (result.ok && notifyOnTaskCreated) {
+        await showTaskCreatedNotification(result.message);
+      }
+      sendResponse(result);
     })();
     return true;
   }
@@ -456,7 +463,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const resourceIds = Array.isArray(message.resourceIds)
         ? message.resourceIds.map((value: unknown) => String(value ?? "")).filter(Boolean)
         : [];
-      sendResponse(await resourceBridge.mergeResources(resourceIds));
+      const result = await resourceBridge.mergeResources(resourceIds);
+      if (result.ok && notifyOnTaskCreated) {
+        await showTaskCreatedNotification(result.message);
+      }
+      sendResponse(result);
     })();
     return true;
   }
@@ -524,6 +535,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const value = String(message.value ?? "").trim();
       await chrome.storage.local.set({ [SIZE_BLACKLIST_KEY]: value });
       sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (message.type === "popup_set_notify_on_task_created") {
+    void (async () => {
+      notifyOnTaskCreated = Boolean(message.enabled);
+      await chrome.storage.local.set({
+        [NOTIFY_ON_TASK_CREATED_KEY]: notifyOnTaskCreated,
+      });
+      sendResponse(await buildPopupState({ currentView: message.view as PopupView | undefined }));
     })();
     return true;
   }

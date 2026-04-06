@@ -78,6 +78,8 @@ export function createResourceBridge(options: {
     mime: string;
     size: number;
   }) => boolean;
+  shouldNotifyOnTaskCreated: () => boolean;
+  notifyTaskCreated: (message?: string) => Promise<void>;
 }) {
   let bridgePersistTimer: number | null = null;
   let bridgeStateReady = false;
@@ -1021,6 +1023,10 @@ export function createResourceBridge(options: {
 
         if (result.ok) {
           await openActionPopup();
+
+          if (options.shouldNotifyOnTaskCreated()) {
+            await options.notifyTaskCreated(`已拦截下载并加入任务：${filename}`);
+          }
         }
       } catch {
         // ignore
@@ -1071,8 +1077,13 @@ export function createResourceBridge(options: {
           supportsRange: resolvedSupportsRange,
         },
       });
+
       if (result.ok) {
         await openActionPopup();
+
+        if (options.shouldNotifyOnTaskCreated()) {
+          await options.notifyTaskCreated(`已拦截下载并加入任务：${resolvedFilename}`);
+        }
       }
     } catch {
       // Browser download has already been intercepted; ignore desktop handoff failures here.

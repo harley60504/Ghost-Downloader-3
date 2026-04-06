@@ -22,5 +22,6 @@ export const MEDIA_TARGET_KEY = "mediaControlTarget";
 export const BRIDGE_RESOURCE_CACHE_KEY = "bridgeResourceCacheByTab";
 export const BRIDGE_HEADER_SNAPSHOTS_KEY = "bridgeHeaderSnapshots";
 export const BRIDGE_LAST_ACTIVE_TAB_KEY = "bridgeLastActiveTabId";
+export const NOTIFY_ON_TASK_CREATED_KEY = "notifyOnTaskCreated";
 
 export const FEATURE_KEYS = ADVANCED_FEATURES.map((item) => item.key);
