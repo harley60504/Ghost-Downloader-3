@@ -127,6 +127,7 @@ export interface PopupStatePayload {
   domainBlacklist: string;
   typeBlacklist: string;
   sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
 }
 
 export interface DesktopRequestResult {

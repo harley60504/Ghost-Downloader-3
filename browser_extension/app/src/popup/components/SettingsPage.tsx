@@ -92,9 +92,12 @@ export function SettingsPage({
   domainBlacklist,
   typeBlacklist,
   sizeBlacklistMB,
+  notifyOnTaskCreated,
+  updatingNotifyOnTaskCreated,
   onSaveDomainBlacklist,
   onSaveTypeBlacklist,
   onSaveSizeBlacklist,
+  onNotifyOnTaskCreatedChange,
 }: {
   connectionState: DesktopConnectionState;
   connectionMessage: string;
@@ -114,9 +117,13 @@ export function SettingsPage({
   domainBlacklist: string;
   typeBlacklist: string;
   sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
+  updatingNotifyOnTaskCreated?: boolean;
+
   onSaveDomainBlacklist: (value: string) => Promise<boolean>;
   onSaveTypeBlacklist: (value: string) => Promise<boolean>;
   onSaveSizeBlacklist: (value: string) => Promise<boolean>;
+  onNotifyOnTaskCreatedChange: (next: boolean) => void;
 }) {
   const styles = useStyles();
   const [tokenDraft, setTokenDraft] = useState(token);
@@ -304,6 +311,21 @@ export function SettingsPage({
               }
             }}
           />
+        </Field>
+      </Card>
+
+      <Card appearance="filled-alternative" className={styles.card}>
+        <Body1Strong>通知设置</Body1Strong>
+
+        <Field label="加入任务时发送通知">
+          <Select
+            value={notifyOnTaskCreated ? "on" : "off"}
+            disabled={updatingNotifyOnTaskCreated}
+            onChange={(_event) => onNotifyOnTaskCreatedChange(_event.currentTarget.value === "on")}
+          >
+            <option value="on">开启</option>
+            <option value="off">关闭</option>
+          </Select>
         </Field>
       </Card>
 

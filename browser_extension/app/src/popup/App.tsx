@@ -112,6 +112,9 @@ export function App({
             onSaveDomainBlacklist={bridge.saveDomainBlacklist}
             onSaveTypeBlacklist={bridge.saveTypeBlacklist}
             onSaveSizeBlacklist={bridge.saveSizeBlacklist}
+            notifyOnTaskCreated={bridge.notifyOnTaskCreated}
+            updatingNotifyOnTaskCreated={bridge.isUpdatingNotifyOnTaskCreated}
+            onNotifyOnTaskCreatedChange={(next) => void bridge.setNotifyOnTaskCreated(next)}
           />
         ) : null}
       </main>
