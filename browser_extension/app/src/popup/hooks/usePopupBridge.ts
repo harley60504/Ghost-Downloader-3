@@ -23,8 +23,8 @@ import type {
 } from "../../shared/types";
 import { sortTasks } from "../../shared/utils";
 
-const REFRESH_INTERVAL_MS = isAndroidFirefoxLike() ? 3500 : 1000;
-const TASKS_REFRESH_INTERVAL_MS = isAndroidFirefoxLike() ? 2200 : 900;
+const REFRESH_INTERVAL_MS = 800;
+const TASKS_REFRESH_INTERVAL_MS = 600;
 const FLASH_TIMEOUT_MS = 2800;
 
 type FlashTone = "neutral" | "success" | "error";
@@ -181,6 +181,7 @@ function mergeSettingsIntoPayload(current: PopupStatePayload, settings: PopupSet
     ...settings,
   };
 }
+
 function mergeTaskStateIntoPayload(
   current: PopupStatePayload,
   next: Pick<PopupStatePayload, "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters">,
@@ -194,7 +195,6 @@ function mergeTaskStateIntoPayload(
     taskCounters: next.taskCounters,
   };
 }
-
 
 export function usePopupBridge(activeView: PopupView) {
   const [payload, setPayload] = useState<PopupStatePayload>(createEmptyPayload);
@@ -256,7 +256,6 @@ export function usePopupBridge(activeView: PopupView) {
       throw error;
     }
   }, []);
-
 
   const setFlash = useCallback((message: string, tone: FlashTone = "neutral") => {
     if (!mountedRef.current) {
@@ -369,6 +368,33 @@ export function usePopupBridge(activeView: PopupView) {
   }, []);
 
   useEffect(() => {
+    const handleMessage = (
+      message: {
+        type?: string;
+        payload?: Pick<
+          PopupStatePayload,
+          "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters"
+        >;
+      },
+    ) => {
+      if (!message || typeof message.type !== "string") {
+        return;
+      }
+
+      if (message.type === "task_update" && message.payload) {
+        if (!mountedRef.current) {
+          return;
+        }
+        setPayload((current) => mergeTaskStateIntoPayload(current, message.payload!));
+        setBackgroundUnavailable(false);
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => chrome.runtime.onMessage.removeListener(handleMessage);
+  }, []);
+
+  useEffect(() => {
     activeViewRef.current = activeView;
     if (activeView !== "settings") {
       lastContentViewRef.current = activeView;
@@ -385,7 +411,17 @@ export function usePopupBridge(activeView: PopupView) {
 
     const timer = window.setInterval(() => {
       const currentView = activeViewRef.current;
-      const refreshPromise = currentView === "tasks" ? refreshTasksState() : refreshState(currentView);
+
+      // tasks 頁優先吃 background push，只有背景不可用時才走 fallback polling
+      if (!backgroundUnavailable && currentView === "tasks") {
+        return;
+      }
+
+      const refreshPromise =
+        currentView === "tasks"
+          ? refreshTasksState()
+          : refreshState(currentView);
+
       void refreshPromise.catch(() => {
         // Ignore transient popup polling failures.
       });
@@ -394,7 +430,7 @@ export function usePopupBridge(activeView: PopupView) {
     return () => {
       window.clearInterval(timer);
     };
-  }, [refreshState]);
+  }, [backgroundUnavailable, refreshState, refreshTasksState]);
 
   const setBusyFeature = useCallback((feature: AdvancedFeatureKey, active: boolean) => {
     updateBusyState(setBusyFeatureKeys, feature, active);
@@ -609,11 +645,15 @@ export function usePopupBridge(activeView: PopupView) {
         if (!result.ok) {
           throw new Error(result.message || "任务操作失败");
         }
-        if (activeViewRef.current === "tasks") {
-          await refreshTasksState();
-        } else {
-          await refreshState(activeViewRef.current);
+
+        if (backgroundUnavailable) {
+          if (activeViewRef.current === "tasks") {
+            await refreshTasksState();
+          } else {
+            await refreshState(activeViewRef.current);
+          }
         }
+
         setFlash("任务操作已发送", "success");
       } catch (error) {
         setBackgroundUnavailable(true);
@@ -622,7 +662,7 @@ export function usePopupBridge(activeView: PopupView) {
         updateBusyState(setBusyTaskIds, taskId, false);
       }
     },
-    [refreshState, refreshTasksState, setFlash],
+    [backgroundUnavailable, refreshState, refreshTasksState, setFlash],
   );
 
   const sendResource = useCallback(
@@ -637,7 +677,11 @@ export function usePopupBridge(activeView: PopupView) {
         if (!result.ok) {
           throw new Error(result.message || "发送资源失败");
         }
-        await refreshState(activeViewRef.current);
+
+        if (backgroundUnavailable) {
+          await refreshState(activeViewRef.current);
+        }
+
         setFlash(result.message || "资源处理成功", "success");
       } catch (error) {
         setBackgroundUnavailable(true);
@@ -646,7 +690,7 @@ export function usePopupBridge(activeView: PopupView) {
         updateBusyState(setBusyResourceIds, resourceId, false);
       }
     },
-    [refreshState, refreshTasksState, setFlash],
+    [backgroundUnavailable, refreshState, setFlash],
   );
 
   const mergeResources = useCallback(
@@ -662,7 +706,11 @@ export function usePopupBridge(activeView: PopupView) {
         if (!result.ok) {
           throw new Error(result.message || "在线合并失败");
         }
-        await refreshState(activeViewRef.current);
+
+        if (backgroundUnavailable) {
+          await refreshState(activeViewRef.current);
+        }
+
         setFlash(result.message || "资源已发送到 Ghost Downloader", "success");
         return true;
       } catch (error) {
@@ -673,7 +721,7 @@ export function usePopupBridge(activeView: PopupView) {
         ids.forEach((resourceId) => updateBusyState(setBusyResourceIds, resourceId, false));
       }
     },
-    [refreshState, refreshTasksState, setFlash],
+    [backgroundUnavailable, refreshState, setFlash],
   );
 
   const toggleFeature = useCallback(

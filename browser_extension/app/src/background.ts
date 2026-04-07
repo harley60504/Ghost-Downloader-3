@@ -39,6 +39,14 @@ let typeBlacklist: string[] = [];
 let sizeBlacklistMB = "";
 let notifyOnTaskCreated = true;
 
+type TaskStatePayload = Pick<
+  PopupStatePayload,
+  "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters"
+>;
+
+let cachedTaskState: TaskStatePayload | null = null;
+let taskCacheRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
 function parseRuleLines(value: string): string[] {
   return String(value ?? "")
     .split(/\r?\n/)
@@ -182,11 +190,7 @@ async function buildPopupState(options: {
   };
 }
 
-
-function buildTaskState(): Pick<
-  PopupStatePayload,
-  "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters"
-> {
+function buildTaskState(): TaskStatePayload {
   const desktopState = desktopBridge.buildSnapshot();
   return {
     connectionState: desktopState.connectionState,
@@ -195,6 +199,46 @@ function buildTaskState(): Pick<
     tasks: desktopState.tasks,
     taskCounters: taskCounters(desktopState.tasks),
   };
+}
+
+function updateTaskCache() {
+  try {
+    cachedTaskState = buildTaskState();
+  } catch (error) {
+    console.warn("Failed to update task cache:", error);
+  }
+}
+
+function broadcastTaskUpdate() {
+  if (!cachedTaskState) {
+    return;
+  }
+
+  try {
+    chrome.runtime.sendMessage({
+      type: "task_update",
+      payload: cachedTaskState,
+    });
+  } catch {
+    // Ignore popup not open / no receiver cases.
+  }
+}
+
+function refreshAndBroadcastTaskState() {
+  updateTaskCache();
+  broadcastTaskUpdate();
+}
+
+function startTaskCacheRefreshLoop() {
+  if (taskCacheRefreshTimer) {
+    clearInterval(taskCacheRefreshTimer);
+  }
+
+  const intervalMs = 900;
+
+  taskCacheRefreshTimer = setInterval(() => {
+    refreshAndBroadcastTaskState();
+  }, intervalMs);
 }
 
 async function initialize() {
@@ -229,10 +273,14 @@ async function initialize() {
   }
 
   desktopBridge.ensureReconnectAlarm();
+
+  refreshAndBroadcastTaskState();
+  startTaskCacheRefreshLoop();
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   desktopBridge.handleReconnectAlarm(alarm);
+  refreshAndBroadcastTaskState();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -257,6 +305,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (changes[NOTIFY_ON_TASK_CREATED_KEY]) {
     notifyOnTaskCreated = Boolean(changes[NOTIFY_ON_TASK_CREATED_KEY].newValue ?? true);
   }
+
+  refreshAndBroadcastTaskState();
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
@@ -367,6 +417,7 @@ async function interceptBrowserDownload(
   }
 
   await resourceBridge.handoffBrowserDownload(downloadItem);
+  refreshAndBroadcastTaskState();
 }
 
 if (!isFirefoxExtension()) {
@@ -401,24 +452,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "popup_get_state") {
     void (async () => {
-      sendResponse(
-        await buildPopupState({
-          preferredTabId: typeof message.tabId === "number" ? message.tabId : null,
-          currentView: message.view as PopupView | undefined,
-        }),
-      );
+      const state = await buildPopupState({
+        preferredTabId: typeof message.tabId === "number" ? message.tabId : null,
+        currentView: message.view as PopupView | undefined,
+      });
+
+      cachedTaskState = {
+        connectionState: state.connectionState,
+        connectionMessage: state.connectionMessage,
+        desktopVersion: state.desktopVersion,
+        tasks: state.tasks,
+        taskCounters: state.taskCounters,
+      };
+
+      sendResponse(state);
     })();
     return true;
   }
 
   if (message.type === "popup_get_tasks_state") {
-    sendResponse(buildTaskState());
+    if (!cachedTaskState) {
+      updateTaskCache();
+    }
+    sendResponse(cachedTaskState ?? buildTaskState());
     return true;
   }
 
   if (message.type === "popup_set_token") {
     void (async () => {
       await desktopBridge.setToken(String(message.token ?? "").trim());
+      refreshAndBroadcastTaskState();
       sendResponse(await buildPopupState({ currentView: message.view as PopupView | undefined }));
     })();
     return true;
@@ -427,6 +490,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "popup_set_server_url") {
     void (async () => {
       await desktopBridge.setServerUrl(String(message.serverUrl ?? ""));
+      refreshAndBroadcastTaskState();
       sendResponse(await buildPopupState({ currentView: message.view as PopupView | undefined }));
     })();
     return true;
@@ -435,6 +499,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "popup_refresh_connection") {
     void (async () => {
       await desktopBridge.connect(true);
+      refreshAndBroadcastTaskState();
       sendResponse(await buildPopupState({ currentView: message.view as PopupView | undefined }));
     })();
     return true;
@@ -457,6 +522,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           taskId: message.taskId,
           action: message.action,
         });
+        refreshAndBroadcastTaskState();
         sendResponse(result);
       } catch (error) {
         sendResponse({
@@ -474,6 +540,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (result.ok && notifyOnTaskCreated) {
         await showTaskCreatedNotification(result.message);
       }
+      refreshAndBroadcastTaskState();
       sendResponse(result);
     })();
     return true;
@@ -488,6 +555,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (result.ok && notifyOnTaskCreated) {
         await showTaskCreatedNotification(result.message);
       }
+      refreshAndBroadcastTaskState();
       sendResponse(result);
     })();
     return true;

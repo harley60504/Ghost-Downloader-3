@@ -41,6 +41,28 @@ export function createDesktopBridge() {
 
   const pendingRequests = new Map<string, PendingRequest>();
 
+  // ===== 新增：snapshot 快取 =====
+  let cachedSnapshot: DesktopBridgeSnapshot = {
+    connectionState,
+    connectionMessage,
+    desktopVersion,
+    token: pairToken,
+    serverUrl,
+    tasks: taskSnapshot,
+  };
+
+  function refreshCachedSnapshot() {
+    cachedSnapshot = {
+      connectionState,
+      connectionMessage,
+      desktopVersion,
+      token: pairToken,
+      serverUrl,
+      tasks: taskSnapshot,
+    };
+  }
+  // ==============================
+
   function nextRequestId(): string {
     return crypto.randomUUID();
   }
@@ -48,6 +70,7 @@ export function createDesktopBridge() {
   function setConnectionState(state: DesktopConnectionState, message: string) {
     connectionState = state;
     connectionMessage = message;
+    refreshCachedSnapshot();
   }
 
   function rejectPendingRequests(message: string) {
@@ -118,6 +141,7 @@ export function createDesktopBridge() {
 
     if (message.type === "task_snapshot" && Array.isArray(message.tasks)) {
       taskSnapshot = message.tasks as GenericTaskSummary[];
+      refreshCachedSnapshot();
       return;
     }
 
@@ -137,6 +161,7 @@ export function createDesktopBridge() {
       const text = String(message.message ?? "配对令牌无效");
       desktopVersion = "";
       taskSnapshot = [];
+      refreshCachedSnapshot();
       setConnectionState("unauthorized", text);
       rejectPendingRequests(text);
       desktopSocket?.close();
@@ -148,6 +173,7 @@ export function createDesktopBridge() {
     if (!pairToken) {
       desktopVersion = "";
       taskSnapshot = [];
+      refreshCachedSnapshot();
       setConnectionState("missing_token", "请先在扩展设置里填写配对令牌");
       return;
     }
@@ -197,6 +223,7 @@ export function createDesktopBridge() {
       rejectPendingRequests("与 Ghost Downloader 的连接已断开");
       if (connectionState !== "unauthorized" && connectionState !== "missing_token") {
         desktopVersion = "";
+        refreshCachedSnapshot();
         setConnectionState("disconnected", "未连接");
         scheduleReconnect();
       }
@@ -208,6 +235,7 @@ export function createDesktopBridge() {
       }
       if (connectionState !== "unauthorized") {
         desktopVersion = "";
+        refreshCachedSnapshot();
         setConnectionState("disconnected", "无法连接到 Ghost Downloader");
       }
     });
@@ -253,11 +281,14 @@ export function createDesktopBridge() {
 
     pairToken = String(localState[PAIR_TOKEN_KEY] ?? "").trim();
     serverUrl = String(localState[SERVER_URL_KEY] ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
+    refreshCachedSnapshot();
   }
 
   async function setToken(token: string) {
     pairToken = String(token ?? "").trim();
     await localStorageSet({ [PAIR_TOKEN_KEY]: pairToken });
+    refreshCachedSnapshot();
+
     if (pairToken) {
       await connect(true);
       return;
@@ -265,6 +296,8 @@ export function createDesktopBridge() {
 
     desktopVersion = "";
     taskSnapshot = [];
+    refreshCachedSnapshot();
+
     if (desktopSocket) {
       desktopSocket.close();
       desktopSocket = null;
@@ -275,6 +308,7 @@ export function createDesktopBridge() {
   async function setServerUrl(nextServerUrl: string) {
     serverUrl = String(nextServerUrl ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
     await localStorageSet({ [SERVER_URL_KEY]: serverUrl });
+    refreshCachedSnapshot();
     await connect(true);
   }
 
@@ -285,17 +319,11 @@ export function createDesktopBridge() {
     if (changes[SERVER_URL_KEY]) {
       serverUrl = String(changes[SERVER_URL_KEY].newValue ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
     }
+    refreshCachedSnapshot();
   }
 
   function buildSnapshot(): DesktopBridgeSnapshot {
-    return {
-      connectionState,
-      connectionMessage,
-      desktopVersion,
-      token: pairToken,
-      serverUrl,
-      tasks: taskSnapshot,
-    };
+    return cachedSnapshot;
   }
 
   function ensureReconnectAlarm() {
