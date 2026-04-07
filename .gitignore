@@ -1,40 +1,62 @@
-# 忽略.vscode文件夹
+# ===== Editor / IDE =====
 .vscode/
 .VSCodeCounter
-
-# 忽略工作区文件
 *.code-workspace
-.DS_Store
-
-# 忽略 .idea
 .idea/
+.DS_Store
+Thumbs.db
 
-# 忽略python缓存文件
-*/__pycache__
+# ===== Python cache =====
+__pycache__/
+*/__pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# 忽略日志文件
+# ===== Logs =====
 log/
+logs/
 *.log
 
-# 忽略 ui 文件
+# ===== UI / generated files =====
 *.ui
 
-# 忽略构建文件
+# ===== Build outputs =====
 build/
 dist/
 output/
 *.spec
+*.tmp
+*.temp
 
-# 忽略本地 Python 环境
+# ===== Python virtual environments =====
 .venv/
 .venv311/
 venv/
+env/
 
-# 忽略浏览器扩展依赖与构建产物
+# ===== Local env / secrets =====
+.env
+.env.*
+*.env
+
+# ===== Private keys / certificates =====
+*.pem
+*.key
+*.p8
+*.p12
+*.crt
+*.cer
+*.csr
+
+# ===== Browser extension dependencies / outputs =====
 browser_extension/app/node_modules/
 browser_extension/chromium/
 browser_extension/firefox/
 
-# 忽略 uv 锁文件
+# ===== Package manager locks you want ignored =====
 uv.lock
