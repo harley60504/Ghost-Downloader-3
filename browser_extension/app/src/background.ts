@@ -26,6 +26,7 @@ import {
   getOnSendHeadersExtraInfoSpec,
   supportsDownloadDeterminingFilename,
   isFirefoxExtension,
+  isAndroidFirefoxLike,
 } from "./shared/browser";
 
 const desktopBridge = createDesktopBridge();
@@ -247,12 +248,14 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   void resourceBridge.setLastActiveTab(activeInfo.tabId);
 });
 
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) {
-    return;
-  }
-  void resourceBridge.refreshActiveTabFromBrowser();
-});
+if (!isAndroidFirefoxLike()) {
+  chrome.windows.onFocusChanged.addListener((windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      return;
+    }
+    void resourceBridge.refreshActiveTabFromBrowser();
+  });
+}
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   resourceBridge.handleTabRemoved(tabId);
@@ -284,9 +287,7 @@ chrome.webRequest.onResponseStarted.addListener(
 
 if (isFirefoxExtension()) {
   chrome.webRequest.onHeadersReceived.addListener(
-    (details) => {
-      return resourceBridge.tryInterceptFirefoxDownload(details);
-    },
+    (details) => resourceBridge.tryInterceptFirefoxDownload(details) ?? undefined,
     { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
     ["blocking", "responseHeaders"] as any,
   );

@@ -97,13 +97,6 @@ export async function activateTab(tabId: number): Promise<void> {
     return;
   }
 
-  if (typeof tab.index === "number" && typeof tab.windowId === "number") {
-    await new Promise<void>((resolve) => {
-      chrome.tabs.highlight({ windowId: tab.windowId, tabs: tab.index }, () => resolve());
-    });
-    return;
-  }
-
   await new Promise<void>((resolve) => {
     chrome.tabs.update(tabId, { active: true }, () => resolve());
   });

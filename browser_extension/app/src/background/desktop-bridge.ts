@@ -11,6 +11,7 @@ import {
   SERVER_URL_KEY,
 } from "./constants";
 import { localStorageGet, localStorageSet } from "./chrome-helpers";
+import { isAndroidFirefoxLike } from "../shared/browser";
 
 type PendingRequest = {
   resolve: (value: any) => void;
@@ -59,6 +60,28 @@ export function createDesktopBridge() {
 
   function isReady(): boolean {
     return connectionState === "connected" && desktopSocket?.readyState === WebSocket.OPEN;
+  }
+
+  function waitForReady(timeoutMs = 8000): Promise<void> {
+    if (isReady()) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const startedAt = Date.now();
+      const timer = self.setInterval(() => {
+        if (isReady()) {
+          clearInterval(timer);
+          resolve();
+          return;
+        }
+
+        if (Date.now() - startedAt >= timeoutMs) {
+          clearInterval(timer);
+          reject(new Error("等待 Ghost Downloader 连接超时"));
+        }
+      }, 120);
+    });
   }
 
   function clearReconnectTimer() {
@@ -154,7 +177,7 @@ export function createDesktopBridge() {
           protocolVersion: PROTOCOL_VERSION,
           token: pairToken,
           extensionVersion: chrome.runtime.getManifest().version,
-          clientKind: "chromium_popup",
+          clientKind: isAndroidFirefoxLike() ? "firefox_android_popup" : "chromium_popup",
         }),
       );
     });
@@ -192,6 +215,11 @@ export function createDesktopBridge() {
 
   async function sendRequest<T extends DesktopRequestResult>(payload: Record<string, unknown>): Promise<T> {
     if (!isReady() || !desktopSocket) {
+      await connect(true);
+      await waitForReady(isAndroidFirefoxLike() ? 12000 : 8000);
+    }
+
+    if (!desktopSocket || desktopSocket.readyState !== WebSocket.OPEN) {
       throw new Error("Ghost Downloader 未连接");
     }
 
