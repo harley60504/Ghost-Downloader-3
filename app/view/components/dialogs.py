@@ -1,12 +1,40 @@
 import hashlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import QButtonGroup, QFileDialog, QHBoxLayout, QVBoxLayout, QWidget
-from qfluentwidgets import (
-    MessageBoxBase, SubtitleLabel, BodyLabel, CheckBox, RadioButton, LineEdit, ToolButton, FluentIcon, ToolTipFilter,
-    ComboBox, ProgressBar
+from PySide6.QtCore import QFileInfo, QSignalBlocker, Qt, QThread, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QButtonGroup,
+    QFileDialog,
+    QFileIconProvider,
+    QHeaderView,
+    QHBoxLayout,
+    QVBoxLayout,
+    QWidget,
 )
+from qfluentwidgets import (
+    Action,
+    BodyLabel,
+    CheckBox,
+    ComboBox,
+    DropDownPushButton,
+    FluentIcon,
+    InfoBar,
+    LineEdit,
+    MessageBoxBase,
+    ProgressBar,
+    PrimaryPushButton,
+    PushButton,
+    RadioButton,
+    RoundMenu,
+    SubtitleLabel,
+    ToolButton,
+    ToolTipFilter,
+)
+
+from app.supports.utils import getReadableSize
+from app.view.components.tree_view import AutoSizingTreeView
 
 
 class DeleteTaskDialog(MessageBoxBase):
@@ -267,3 +295,288 @@ class FileHashDialog(MessageBoxBase):
         self.yesButton.setEnabled(True)
         self.cancelButton.setEnabled(True)
         self.yesButton.setText(self.tr("重新校验"))
+
+
+class FileSelectDialog(MessageBoxBase):
+    _FILE_TYPE_RULES = (
+        ("video", "视频", FluentIcon.VIDEO, {
+            ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".rmvb", ".ts", ".webm", ".wmv",
+        }),
+        ("audio", "音频", FluentIcon.MUSIC, {
+            ".aac", ".ape", ".flac", ".m4a", ".mp3", ".ogg", ".opus", ".wav", ".wma",
+        }),
+        ("image", "图片", FluentIcon.PHOTO, {
+            ".avif", ".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".tif", ".tiff", ".webp",
+        }),
+        ("subtitle", "字幕", FluentIcon.CHAT, {
+            ".ass", ".idx", ".lrc", ".psb", ".smi", ".srt", ".ssa", ".sub", ".sup", ".vtt",
+        }),
+        ("document", "文档", FluentIcon.DOCUMENT, {
+            ".chm", ".csv", ".doc", ".docx", ".epub", ".md", ".nfo", ".odt", ".pdf", ".ppt", ".pptx", ".rtf",
+            ".txt", ".xls", ".xlsx",
+        }),
+        ("archive", "压缩包", FluentIcon.ZIP_FOLDER, {
+            ".001", ".7z", ".bz2", ".cab", ".gz", ".iso", ".rar", ".tar", ".tbz2", ".tgz", ".xz", ".zip", ".zst",
+            ".tar.bz2", ".tar.gz", ".tar.xz", ".tar.zst",
+        }),
+        ("application", "程序", FluentIcon.APPLICATION, {
+            ".apk", ".appimage", ".bat", ".com", ".deb", ".dmg", ".exe", ".iso", ".jar", ".msi", ".pkg", ".rpm", ".sh",
+        }),
+    )
+    _FILE_TYPE_META: dict[str, tuple[str, "FluentIcon"]] = {
+        key: (label, icon)
+        for key, label, icon, _ in _FILE_TYPE_RULES
+    }
+    _FILE_TYPE_SUFFIXES: dict[str, set[str]] = {
+        key: suffixes
+        for key, _, _, suffixes in _FILE_TYPE_RULES
+    }
+
+    @classmethod
+    def _fileSuffix(cls, path: str) -> str:
+        suffixes = [s.lower() for s in PurePosixPath(path).suffixes]
+        if not suffixes:
+            return ""
+        if len(suffixes) > 1:
+            combined = "".join(suffixes[-2:])
+            if combined in cls._FILE_TYPE_SUFFIXES["archive"]:
+                return combined
+        return suffixes[-1]
+
+    @classmethod
+    def _fileType(cls, path: str) -> str:
+        suffix = cls._fileSuffix(path)
+        for key, _, _, suffixes in cls._FILE_TYPE_RULES:
+            if suffix in suffixes:
+                return key
+        return "other"
+
+    def __init__(self, task, parent=None):
+        super().__init__(parent=parent)
+        self.task = task
+        self._fileItems: dict[int, QStandardItem] = {}
+
+        self.widget.setMinimumSize(720, 520)
+        self.titleLabel = SubtitleLabel(self.tr("选择下载文件"), self.widget)
+        self.summaryLabel = BodyLabel("", self.widget)
+        self.treeView = AutoSizingTreeView(self.widget)
+        self.treeModel = QStandardItemModel(self.treeView)
+        self.actionsWidget = QWidget(self.widget)
+        self.actionsLayout = QHBoxLayout(self.actionsWidget)
+        self.selectAllButton = PrimaryPushButton(self.tr("全选"), self.actionsWidget)
+        self.clearButton = PushButton(self.tr("全不选"), self.actionsWidget)
+        self.invertButton = PushButton(self.tr("反选"), self.actionsWidget)
+        self.selectByTypeButton = DropDownPushButton(self.tr("按类型选择"), self.actionsWidget)
+        self.selectByTypeMenu = RoundMenu(parent=self)
+
+        self.yesButton.setText(self.tr("应用"))
+        self.cancelButton.setText(self.tr("取消"))
+
+        self._initWidget()
+        self._buildTree()
+        self._updateSummary()
+
+    def _fileDisplayPath(self, file) -> str:
+        raise NotImplementedError
+
+    def _fileTypePath(self, file) -> str:
+        return self._fileDisplayPath(file)
+
+    def _initWidget(self):
+        self.treeModel.setHorizontalHeaderLabels([self.tr("文件"), self.tr("大小")])
+        self.treeView.setModel(self.treeModel)
+        self.treeView.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.treeView.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.treeView.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.treeModel.itemChanged.connect(self._onItemChanged)
+
+        self.actionsLayout.setContentsMargins(0, 0, 0, 0)
+        self.actionsLayout.setSpacing(8)
+        self.actionsLayout.addWidget(self.selectAllButton)
+        self.actionsLayout.addWidget(self.clearButton)
+        self.actionsLayout.addWidget(self.invertButton)
+        self.actionsLayout.addWidget(self.selectByTypeButton)
+        self.actionsLayout.addStretch(1)
+
+        self.selectAllButton.clicked.connect(self._selectAll)
+        self.clearButton.clicked.connect(self._clearAll)
+        self.invertButton.clicked.connect(self._invertSelection)
+        self._initTypeMenu()
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.summaryLabel)
+        self.viewLayout.addSpacing(8)
+        self.viewLayout.addWidget(self.treeView)
+        self.viewLayout.addSpacing(8)
+        self.viewLayout.addWidget(self.actionsWidget)
+
+    def _buildTree(self):
+        folderItems: dict[tuple[str, ...], QStandardItem] = {}
+        provider = QFileIconProvider()
+        root = self.treeModel.invisibleRootItem()
+
+        for file in self.task.files:
+            path = PurePosixPath(self._fileDisplayPath(file))
+            parts = path.parts
+            parent = root
+            prefix: list[str] = []
+
+            for part in parts[:-1]:
+                prefix.append(part)
+                key = tuple(prefix)
+                item = folderItems.get(key)
+                if item is None:
+                    item = QStandardItem(part)
+                    item.setEditable(False)
+                    item.setCheckable(True)
+                    item.setCheckState(Qt.CheckState.Unchecked)
+                    item.setIcon(provider.icon(QFileIconProvider.IconType.Folder))
+                    sizeItem = QStandardItem("")
+                    sizeItem.setEditable(False)
+                    parent.appendRow([item, sizeItem])
+                    folderItems[key] = item
+                parent = item
+
+            name = parts[-1] if parts else self._fileDisplayPath(file)
+            item = QStandardItem(name)
+            item.setEditable(False)
+            item.setCheckable(True)
+            item.setCheckState(Qt.CheckState.Checked if file.selected else Qt.CheckState.Unchecked)
+            item.setIcon(provider.icon(QFileInfo(name)))
+            sizeItem = QStandardItem(getReadableSize(file.size))
+            sizeItem.setEditable(False)
+            parent.appendRow([item, sizeItem])
+            self._fileItems[file.index] = item
+
+        with QSignalBlocker(self.treeModel):
+            for i in range(root.rowCount()):
+                self._syncBranchCheckState(root.child(i))
+
+        self.treeView.expandAll()
+        self.treeView.resizeColumnToContents(0)
+
+    def _initTypeMenu(self):
+        for typeKey, count in self._availableFileTypes().items():
+            label, icon = self._FILE_TYPE_META.get(typeKey, (self.tr("其他"), FluentIcon.FOLDER))
+            action = Action(icon, self.tr("仅选{0} ({1})").format(self.tr(label), count), self)
+            action.triggered.connect(lambda _, key=typeKey: self._selectOnlyFileType(key))
+            self.selectByTypeMenu.addAction(action)
+
+        self.selectByTypeButton.setMenu(self.selectByTypeMenu)
+        self.selectByTypeButton.setEnabled(bool(self.selectByTypeMenu.actions()))
+
+    def _syncBranchCheckState(self, item: QStandardItem):
+        if item.rowCount() == 0:
+            return item.checkState()
+
+        states = [self._syncBranchCheckState(item.child(i)) for i in range(item.rowCount())]
+        if all(state == Qt.CheckState.Checked for state in states):
+            item.setCheckState(Qt.CheckState.Checked)
+        elif all(state == Qt.CheckState.Unchecked for state in states):
+            item.setCheckState(Qt.CheckState.Unchecked)
+        else:
+            item.setCheckState(Qt.CheckState.PartiallyChecked)
+        return item.checkState()
+
+    def _syncAncestorCheckStates(self, item: QStandardItem | None):
+        while item is not None:
+            states = [item.child(i).checkState() for i in range(item.rowCount())]
+            if all(state == Qt.CheckState.Checked for state in states):
+                item.setCheckState(Qt.CheckState.Checked)
+            elif all(state == Qt.CheckState.Unchecked for state in states):
+                item.setCheckState(Qt.CheckState.Unchecked)
+            else:
+                item.setCheckState(Qt.CheckState.PartiallyChecked)
+            item = item.parent()
+
+    def _setChildrenCheckState(self, item: QStandardItem, state: Qt.CheckState):
+        for i in range(item.rowCount()):
+            child = item.child(i)
+            child.setCheckState(state)
+            self._setChildrenCheckState(child, state)
+
+    def _availableFileTypes(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for file in self.task.files:
+            typeKey = self._fileType(self._fileTypePath(file))
+            counts[typeKey] = counts.get(typeKey, 0) + 1
+        return counts
+
+    def _collectSelectedIndexes(self) -> set[int]:
+        return {
+            file.index
+            for file in self.task.files
+            if self._fileItems[file.index].checkState() == Qt.CheckState.Checked
+        }
+
+    def _setSelectedIndexes(self, selectedIndexes: set[int]):
+        with QSignalBlocker(self.treeModel):
+            for file in self.task.files:
+                item = self._fileItems[file.index]
+                state = Qt.CheckState.Checked if file.index in selectedIndexes else Qt.CheckState.Unchecked
+                item.setCheckState(state)
+                self._syncAncestorCheckStates(item.parent())
+        self._updateSummary()
+
+    def _updateSummary(self):
+        selectedIndexes = self._collectSelectedIndexes()
+        selectedFiles = [file for file in self.task.files if file.index in selectedIndexes]
+        self.summaryLabel.setText(
+            self.tr("已选择 {0}/{1} 个文件，共 {2}").format(
+                len(selectedFiles),
+                self.task.totalFileCount,
+                getReadableSize(sum(file.size for file in selectedFiles)),
+            )
+        )
+
+    def _onItemChanged(self, item: QStandardItem):
+        if item.column() != 0:
+            return
+
+        with QSignalBlocker(self.treeModel):
+            if item.rowCount() > 0 and item.checkState() != Qt.CheckState.PartiallyChecked:
+                self._setChildrenCheckState(item, item.checkState())
+            self._syncAncestorCheckStates(item.parent())
+        self._updateSummary()
+        self.treeView.viewport().update()
+
+    def _setRootCheckState(self, state: Qt.CheckState):
+        if state == Qt.CheckState.Checked:
+            self._setSelectedIndexes({file.index for file in self.task.files})
+        else:
+            self._setSelectedIndexes(set())
+
+    def _selectAll(self):
+        self._setRootCheckState(Qt.CheckState.Checked)
+        self.treeView.viewport().update()
+
+    def _clearAll(self):
+        self._setRootCheckState(Qt.CheckState.Unchecked)
+        self.treeView.viewport().update()
+
+    def _invertSelection(self):
+        currentSelected = self._collectSelectedIndexes()
+        self._setSelectedIndexes({
+            file.index for file in self.task.files if file.index not in currentSelected
+        })
+        self.treeView.viewport().update()
+
+    def _selectOnlyFileType(self, typeKey: str):
+        self._setSelectedIndexes({
+            file.index for file in self.task.files if self._fileType(self._fileTypePath(file)) == typeKey
+        })
+        self.treeView.viewport().update()
+
+    def validate(self) -> bool:
+        if self._collectSelectedIndexes():
+            return True
+
+        InfoBar.warning(
+            self.tr("至少选择一个文件"),
+            self.tr("当前没有任何文件被勾选"),
+            parent=self,
+        )
+        return False
+
+    def selectedIndexes(self) -> set[int]:
+        return self._collectSelectedIndexes()
