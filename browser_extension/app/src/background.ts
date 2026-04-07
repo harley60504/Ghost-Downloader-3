@@ -182,6 +182,21 @@ async function buildPopupState(options: {
   };
 }
 
+
+function buildTaskState(): Pick<
+  PopupStatePayload,
+  "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters"
+> {
+  const desktopState = desktopBridge.buildSnapshot();
+  return {
+    connectionState: desktopState.connectionState,
+    connectionMessage: desktopState.connectionMessage,
+    desktopVersion: desktopState.desktopVersion,
+    tasks: desktopState.tasks,
+    taskCounters: taskCounters(desktopState.tasks),
+  };
+}
+
 async function initialize() {
   const localState = await localStorageGet<{
     [INTERCEPT_DOWNLOADS_KEY]: boolean;
@@ -393,6 +408,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }),
       );
     })();
+    return true;
+  }
+
+  if (message.type === "popup_get_tasks_state") {
+    sendResponse(buildTaskState());
     return true;
   }
 

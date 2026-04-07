@@ -24,6 +24,7 @@ import type {
 import { sortTasks } from "../../shared/utils";
 
 const REFRESH_INTERVAL_MS = isAndroidFirefoxLike() ? 3500 : 1000;
+const TASKS_REFRESH_INTERVAL_MS = isAndroidFirefoxLike() ? 2200 : 900;
 const FLASH_TIMEOUT_MS = 2800;
 
 type FlashTone = "neutral" | "success" | "error";
@@ -180,6 +181,20 @@ function mergeSettingsIntoPayload(current: PopupStatePayload, settings: PopupSet
     ...settings,
   };
 }
+function mergeTaskStateIntoPayload(
+  current: PopupStatePayload,
+  next: Pick<PopupStatePayload, "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters">,
+): PopupStatePayload {
+  return {
+    ...current,
+    connectionState: next.connectionState,
+    connectionMessage: next.connectionMessage,
+    desktopVersion: next.desktopVersion,
+    tasks: next.tasks,
+    taskCounters: next.taskCounters,
+  };
+}
+
 
 export function usePopupBridge(activeView: PopupView) {
   const [payload, setPayload] = useState<PopupStatePayload>(createEmptyPayload);
@@ -221,6 +236,27 @@ export function usePopupBridge(activeView: PopupView) {
     setPayload((current) => mergeSettingsIntoPayload(current, settings));
     return settings;
   }, []);
+
+  const refreshTasksState = useCallback(async () => {
+    try {
+      const next = await sendRuntimeMessage<
+        Pick<PopupStatePayload, "connectionState" | "connectionMessage" | "desktopVersion" | "tasks" | "taskCounters">
+      >({
+        type: "popup_get_tasks_state",
+      });
+      if (!mountedRef.current) {
+        return;
+      }
+      setPayload((current) => mergeTaskStateIntoPayload(current, next));
+      setBackgroundUnavailable(false);
+    } catch (error) {
+      if (mountedRef.current) {
+        setBackgroundUnavailable(true);
+      }
+      throw error;
+    }
+  }, []);
+
 
   const setFlash = useCallback((message: string, tone: FlashTone = "neutral") => {
     if (!mountedRef.current) {
@@ -348,10 +384,12 @@ export function usePopupBridge(activeView: PopupView) {
     }
 
     const timer = window.setInterval(() => {
-      void refreshState(activeViewRef.current).catch(() => {
+      const currentView = activeViewRef.current;
+      const refreshPromise = currentView === "tasks" ? refreshTasksState() : refreshState(currentView);
+      void refreshPromise.catch(() => {
         // Ignore transient popup polling failures.
       });
-    }, REFRESH_INTERVAL_MS);
+    }, activeViewRef.current === "tasks" ? TASKS_REFRESH_INTERVAL_MS : REFRESH_INTERVAL_MS);
 
     return () => {
       window.clearInterval(timer);
@@ -571,7 +609,11 @@ export function usePopupBridge(activeView: PopupView) {
         if (!result.ok) {
           throw new Error(result.message || "任务操作失败");
         }
-        await refreshState(activeViewRef.current);
+        if (activeViewRef.current === "tasks") {
+          await refreshTasksState();
+        } else {
+          await refreshState(activeViewRef.current);
+        }
         setFlash("任务操作已发送", "success");
       } catch (error) {
         setBackgroundUnavailable(true);
@@ -580,7 +622,7 @@ export function usePopupBridge(activeView: PopupView) {
         updateBusyState(setBusyTaskIds, taskId, false);
       }
     },
-    [refreshState, setFlash],
+    [refreshState, refreshTasksState, setFlash],
   );
 
   const sendResource = useCallback(
@@ -604,7 +646,7 @@ export function usePopupBridge(activeView: PopupView) {
         updateBusyState(setBusyResourceIds, resourceId, false);
       }
     },
-    [refreshState, setFlash],
+    [refreshState, refreshTasksState, setFlash],
   );
 
   const mergeResources = useCallback(
@@ -631,7 +673,7 @@ export function usePopupBridge(activeView: PopupView) {
         ids.forEach((resourceId) => updateBusyState(setBusyResourceIds, resourceId, false));
       }
     },
-    [refreshState, setFlash],
+    [refreshState, refreshTasksState, setFlash],
   );
 
   const toggleFeature = useCallback(
