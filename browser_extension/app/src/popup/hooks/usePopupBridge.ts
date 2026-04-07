@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
-import { ADVANCED_FEATURES } from "../../shared/constants";
+import {
+  DOMAIN_BLACKLIST_KEY,
+  INTERCEPT_DOWNLOADS_KEY,
+  NOTIFY_ON_TASK_CREATED_KEY,
+  PAIR_TOKEN_KEY,
+  SERVER_URL_KEY,
+  SIZE_BLACKLIST_KEY,
+  TYPE_BLACKLIST_KEY,
+} from "../../background/constants";
+import { DEFAULT_SERVER_URL, ADVANCED_FEATURES } from "../../shared/constants";
+import { isAndroidFirefoxLike } from "../../shared/browser";
 import type {
   AdvancedFeatureKey,
   DesktopRequestResult,
@@ -13,10 +23,31 @@ import type {
 } from "../../shared/types";
 import { sortTasks } from "../../shared/utils";
 
-const REFRESH_INTERVAL_MS = 1000;
+const REFRESH_INTERVAL_MS = isAndroidFirefoxLike() ? 3500 : 1000;
 const FLASH_TIMEOUT_MS = 2800;
 
 type FlashTone = "neutral" | "success" | "error";
+
+type PopupSettingsState = Pick<
+  PopupStatePayload,
+  | "token"
+  | "serverUrl"
+  | "interceptDownloads"
+  | "domainBlacklist"
+  | "typeBlacklist"
+  | "sizeBlacklistMB"
+  | "notifyOnTaskCreated"
+>;
+
+const STORAGE_DEFAULTS = {
+  [PAIR_TOKEN_KEY]: "",
+  [SERVER_URL_KEY]: DEFAULT_SERVER_URL,
+  [INTERCEPT_DOWNLOADS_KEY]: true,
+  [DOMAIN_BLACKLIST_KEY]: "",
+  [TYPE_BLACKLIST_KEY]: "",
+  [SIZE_BLACKLIST_KEY]: "",
+  [NOTIFY_ON_TASK_CREATED_KEY]: true,
+} as const;
 
 function sendRuntimeMessage<T>(message: unknown): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -49,11 +80,6 @@ function sendMessageToTab<T>(
 }
 
 async function highlightTab(tabId: number): Promise<void> {
-  const tab = await chrome.tabs.get(tabId);
-  if (typeof tab.index === "number" && typeof tab.windowId === "number") {
-    await chrome.tabs.highlight({ windowId: tab.windowId, tabs: tab.index });
-    return;
-  }
   await chrome.tabs.update(tabId, { active: true });
 }
 
@@ -92,7 +118,7 @@ function createEmptyPayload(): PopupStatePayload {
     connectionMessage: "请先在扩展设置里填写配对令牌",
     desktopVersion: "",
     token: "",
-    serverUrl: "",
+    serverUrl: DEFAULT_SERVER_URL,
     interceptDownloads: true,
     tasks: [],
     taskCounters: { total: 0, active: 0, completed: 0 },
@@ -108,7 +134,6 @@ function createEmptyPayload(): PopupStatePayload {
     selectedMediaTabId: null,
     selectedMediaIndex: -1,
     mediaPlaybackState: createEmptyMediaState(),
-
     domainBlacklist: "",
     typeBlacklist: "",
     sizeBlacklistMB: "",
@@ -136,6 +161,26 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+async function readSettingsFromStorage(): Promise<PopupSettingsState> {
+  const stored = await chrome.storage.local.get(STORAGE_DEFAULTS);
+  return {
+    token: String(stored[PAIR_TOKEN_KEY] ?? ""),
+    serverUrl: String(stored[SERVER_URL_KEY] ?? DEFAULT_SERVER_URL) || DEFAULT_SERVER_URL,
+    interceptDownloads: Boolean(stored[INTERCEPT_DOWNLOADS_KEY] ?? true),
+    domainBlacklist: String(stored[DOMAIN_BLACKLIST_KEY] ?? ""),
+    typeBlacklist: String(stored[TYPE_BLACKLIST_KEY] ?? ""),
+    sizeBlacklistMB: String(stored[SIZE_BLACKLIST_KEY] ?? ""),
+    notifyOnTaskCreated: Boolean(stored[NOTIFY_ON_TASK_CREATED_KEY] ?? true),
+  };
+}
+
+function mergeSettingsIntoPayload(current: PopupStatePayload, settings: PopupSettingsState): PopupStatePayload {
+  return {
+    ...current,
+    ...settings,
+  };
+}
+
 export function usePopupBridge(activeView: PopupView) {
   const [payload, setPayload] = useState<PopupStatePayload>(createEmptyPayload);
   const [busyTaskIds, setBusyTaskIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -149,6 +194,7 @@ export function usePopupBridge(activeView: PopupView) {
   const [isUpdatingIntercept, setIsUpdatingIntercept] = useState(false);
   const [isUpdatingMedia, setIsUpdatingMedia] = useState(false);
   const [isUpdatingNotifyOnTaskCreated, setIsUpdatingNotifyOnTaskCreated] = useState(false);
+  const [backgroundUnavailable, setBackgroundUnavailable] = useState(false);
 
   const mountedRef = useRef(true);
   const flashTimerRef = useRef<number | null>(null);
@@ -166,6 +212,16 @@ export function usePopupBridge(activeView: PopupView) {
     }
     setPayload(next);
   }, []);
+
+  const patchSettingsFromStorage = useCallback(async () => {
+    const settings = await readSettingsFromStorage();
+    if (!mountedRef.current) {
+      return settings;
+    }
+    setPayload((current) => mergeSettingsIntoPayload(current, settings));
+    return settings;
+  }, []);
+
   const setFlash = useCallback((message: string, tone: FlashTone = "neutral") => {
     if (!mountedRef.current) {
       return;
@@ -191,11 +247,29 @@ export function usePopupBridge(activeView: PopupView) {
       }
 
       refreshPromiseRef.current = (async () => {
-        const next = await sendRuntimeMessage<PopupStatePayload>({
-          type: "popup_get_state",
-          view: requestView(view),
-        });
-        applyPopupState(next);
+        const settings = await patchSettingsFromStorage();
+        try {
+          const next = await sendRuntimeMessage<PopupStatePayload>({
+            type: "popup_get_state",
+            view: requestView(view),
+          });
+          applyPopupState(mergeSettingsIntoPayload(next, settings));
+          if (mountedRef.current) {
+            setBackgroundUnavailable(false);
+          }
+        } catch (error) {
+          if (mountedRef.current) {
+            setBackgroundUnavailable(true);
+            setPayload((current) => ({
+              ...mergeSettingsIntoPayload(current, settings),
+              connectionState: settings.token ? current.connectionState : "missing_token",
+              connectionMessage: settings.token
+                ? "背景暂时不可用，已保留本地设置"
+                : "请先在扩展设置里填写配对令牌",
+            }));
+          }
+          throw error;
+        }
       })();
 
       try {
@@ -204,17 +278,58 @@ export function usePopupBridge(activeView: PopupView) {
         refreshPromiseRef.current = null;
       }
     },
-    [applyPopupState, requestView],
+    [applyPopupState, patchSettingsFromStorage, requestView],
   );
 
   useEffect(() => {
     mountedRef.current = true;
+    void patchSettingsFromStorage();
     return () => {
       mountedRef.current = false;
       if (flashTimerRef.current !== null) {
         window.clearTimeout(flashTimerRef.current);
       }
     };
+  }, [patchSettingsFromStorage]);
+
+  useEffect(() => {
+    const handleStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string,
+    ) => {
+      if (areaName !== "local") {
+        return;
+      }
+
+      setPayload((current) => {
+        let next = current;
+        if (changes[PAIR_TOKEN_KEY]) {
+          next = { ...next, token: String(changes[PAIR_TOKEN_KEY].newValue ?? "") };
+        }
+        if (changes[SERVER_URL_KEY]) {
+          next = { ...next, serverUrl: String(changes[SERVER_URL_KEY].newValue ?? DEFAULT_SERVER_URL) || DEFAULT_SERVER_URL };
+        }
+        if (changes[INTERCEPT_DOWNLOADS_KEY]) {
+          next = { ...next, interceptDownloads: Boolean(changes[INTERCEPT_DOWNLOADS_KEY].newValue ?? true) };
+        }
+        if (changes[DOMAIN_BLACKLIST_KEY]) {
+          next = { ...next, domainBlacklist: String(changes[DOMAIN_BLACKLIST_KEY].newValue ?? "") };
+        }
+        if (changes[TYPE_BLACKLIST_KEY]) {
+          next = { ...next, typeBlacklist: String(changes[TYPE_BLACKLIST_KEY].newValue ?? "") };
+        }
+        if (changes[SIZE_BLACKLIST_KEY]) {
+          next = { ...next, sizeBlacklistMB: String(changes[SIZE_BLACKLIST_KEY].newValue ?? "") };
+        }
+        if (changes[NOTIFY_ON_TASK_CREATED_KEY]) {
+          next = { ...next, notifyOnTaskCreated: Boolean(changes[NOTIFY_ON_TASK_CREATED_KEY].newValue ?? true) };
+        }
+        return next;
+      });
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
 
   useEffect(() => {
@@ -228,6 +343,10 @@ export function usePopupBridge(activeView: PopupView) {
   }, [activeView, refreshState]);
 
   useEffect(() => {
+    if (activeViewRef.current === "settings") {
+      return;
+    }
+
     const timer = window.setInterval(() => {
       void refreshState(activeViewRef.current).catch(() => {
         // Ignore transient popup polling failures.
@@ -245,18 +364,27 @@ export function usePopupBridge(activeView: PopupView) {
 
   const saveToken = useCallback(
     async (value: string) => {
+      const trimmed = value.trim();
       setIsSavingToken(true);
       try {
-        const next = await sendRuntimeMessage<PopupStatePayload>({
-          type: "popup_set_token",
-          token: value.trim(),
-          view: requestView(activeViewRef.current),
-        });
-        applyPopupState(next);
-        setFlash(
-          next.connectionState === "connected" ? "配对令牌已保存" : next.connectionMessage,
-          next.connectionState === "connected" ? "success" : "neutral",
-        );
+        await chrome.storage.local.set({ [PAIR_TOKEN_KEY]: trimmed });
+        setPayload((current) => ({ ...current, token: trimmed }));
+        try {
+          const next = await sendRuntimeMessage<PopupStatePayload>({
+            type: "popup_set_token",
+            token: trimmed,
+            view: requestView(activeViewRef.current),
+          });
+          applyPopupState(next);
+          setBackgroundUnavailable(false);
+          setFlash(
+            next.connectionState === "connected" ? "配对令牌已保存" : next.connectionMessage,
+            next.connectionState === "connected" ? "success" : "neutral",
+          );
+        } catch {
+          setBackgroundUnavailable(true);
+          setFlash("配对令牌已保存，等待背景重新连线", "neutral");
+        }
         return true;
       } catch (error) {
         setFlash(getErrorMessage(error, "保存配对令牌失败"), "error");
@@ -272,18 +400,27 @@ export function usePopupBridge(activeView: PopupView) {
 
   const saveServerUrl = useCallback(
     async (value: string) => {
+      const normalized = value.trim() || DEFAULT_SERVER_URL;
       setIsSavingServerUrl(true);
       try {
-        const next = await sendRuntimeMessage<PopupStatePayload>({
-          type: "popup_set_server_url",
-          serverUrl: value,
-          view: requestView(activeViewRef.current),
-        });
-        applyPopupState(next);
-        setFlash(
-          next.connectionState === "connected" ? "服务地址已保存并重新连接" : next.connectionMessage,
-          next.connectionState === "connected" ? "success" : "neutral",
-        );
+        await chrome.storage.local.set({ [SERVER_URL_KEY]: normalized });
+        setPayload((current) => ({ ...current, serverUrl: normalized }));
+        try {
+          const next = await sendRuntimeMessage<PopupStatePayload>({
+            type: "popup_set_server_url",
+            serverUrl: normalized,
+            view: requestView(activeViewRef.current),
+          });
+          applyPopupState(next);
+          setBackgroundUnavailable(false);
+          setFlash(
+            next.connectionState === "connected" ? "服务地址已保存并重新连接" : next.connectionMessage,
+            next.connectionState === "connected" ? "success" : "neutral",
+          );
+        } catch {
+          setBackgroundUnavailable(true);
+          setFlash("服务地址已保存，等待背景重新连线", "neutral");
+        }
         return true;
       } catch (error) {
         setFlash(getErrorMessage(error, "保存服务地址失败"), "error");
@@ -300,20 +437,8 @@ export function usePopupBridge(activeView: PopupView) {
   const saveDomainBlacklist = useCallback(
     async (value: string) => {
       try {
-        const result = await sendRuntimeMessage<{ ok: boolean }>({
-          type: "popup_set_domain_blacklist",
-          value,
-        });
-
-        if (!result?.ok) {
-          throw new Error("保存网域黑名单失败");
-        }
-
-        setPayload((current) => ({
-          ...current,
-          domainBlacklist: value,
-        }));
-
+        await chrome.storage.local.set({ [DOMAIN_BLACKLIST_KEY]: value });
+        setPayload((current) => ({ ...current, domainBlacklist: value }));
         setFlash("网域黑名单已保存", "success");
         return true;
       } catch (error) {
@@ -327,20 +452,8 @@ export function usePopupBridge(activeView: PopupView) {
   const saveTypeBlacklist = useCallback(
     async (value: string) => {
       try {
-        const result = await sendRuntimeMessage<{ ok: boolean }>({
-          type: "popup_set_type_blacklist",
-          value,
-        });
-
-        if (!result?.ok) {
-          throw new Error("保存类型黑名单失败");
-        }
-
-        setPayload((current) => ({
-          ...current,
-          typeBlacklist: value,
-        }));
-
+        await chrome.storage.local.set({ [TYPE_BLACKLIST_KEY]: value });
+        setPayload((current) => ({ ...current, typeBlacklist: value }));
         setFlash("类型黑名单已保存", "success");
         return true;
       } catch (error) {
@@ -350,23 +463,13 @@ export function usePopupBridge(activeView: PopupView) {
     },
     [setFlash],
   );
+
   const saveSizeBlacklist = useCallback(
     async (value: string) => {
+      const normalized = value.trim();
       try {
-        const result = await sendRuntimeMessage<{ ok: boolean }>({
-          type: "popup_set_size_blacklist",
-          value,
-        });
-
-        if (!result?.ok) {
-          throw new Error("保存大小门槛失败");
-        }
-
-        setPayload((current) => ({
-          ...current,
-          sizeBlacklistMB: value,
-        }));
-
+        await chrome.storage.local.set({ [SIZE_BLACKLIST_KEY]: normalized });
+        setPayload((current) => ({ ...current, sizeBlacklistMB: normalized }));
         setFlash("大小门槛已保存", "success");
         return true;
       } catch (error) {
@@ -381,12 +484,19 @@ export function usePopupBridge(activeView: PopupView) {
     async (enabled: boolean) => {
       setIsUpdatingNotifyOnTaskCreated(true);
       try {
-        const next = await sendRuntimeMessage<PopupStatePayload>({
-          type: "popup_set_notify_on_task_created",
-          enabled,
-          view: requestView(activeViewRef.current),
-        });
-        applyPopupState(next);
+        await chrome.storage.local.set({ [NOTIFY_ON_TASK_CREATED_KEY]: enabled });
+        setPayload((current) => ({ ...current, notifyOnTaskCreated: enabled }));
+        try {
+          const next = await sendRuntimeMessage<PopupStatePayload>({
+            type: "popup_set_notify_on_task_created",
+            enabled,
+            view: requestView(activeViewRef.current),
+          });
+          applyPopupState(next);
+          setBackgroundUnavailable(false);
+        } catch {
+          setBackgroundUnavailable(true);
+        }
       } catch (error) {
         setFlash(getErrorMessage(error, "更新任务通知设置失败"), "error");
       } finally {
@@ -406,9 +516,11 @@ export function usePopupBridge(activeView: PopupView) {
         view: requestView(activeViewRef.current),
       });
       applyPopupState(next);
+      setBackgroundUnavailable(false);
       setFlash(next.connectionMessage, next.connectionState === "connected" ? "success" : "neutral");
       return true;
     } catch (error) {
+      setBackgroundUnavailable(true);
       setFlash(getErrorMessage(error, "重新连接失败"), "error");
       return false;
     } finally {
@@ -422,12 +534,19 @@ export function usePopupBridge(activeView: PopupView) {
     async (enabled: boolean) => {
       setIsUpdatingIntercept(true);
       try {
-        const next = await sendRuntimeMessage<PopupStatePayload>({
-          type: "popup_set_intercept_downloads",
-          enabled,
-          view: requestView(activeViewRef.current),
-        });
-        applyPopupState(next);
+        await chrome.storage.local.set({ [INTERCEPT_DOWNLOADS_KEY]: enabled });
+        setPayload((current) => ({ ...current, interceptDownloads: enabled }));
+        try {
+          const next = await sendRuntimeMessage<PopupStatePayload>({
+            type: "popup_set_intercept_downloads",
+            enabled,
+            view: requestView(activeViewRef.current),
+          });
+          applyPopupState(next);
+          setBackgroundUnavailable(false);
+        } catch {
+          setBackgroundUnavailable(true);
+        }
       } catch (error) {
         setFlash(getErrorMessage(error, "更新拦截下载失败"), "error");
       } finally {
@@ -448,12 +567,14 @@ export function usePopupBridge(activeView: PopupView) {
           taskId,
           action,
         });
+        setBackgroundUnavailable(false);
         if (!result.ok) {
           throw new Error(result.message || "任务操作失败");
         }
         await refreshState(activeViewRef.current);
         setFlash("任务操作已发送", "success");
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "任务操作失败"), "error");
       } finally {
         updateBusyState(setBusyTaskIds, taskId, false);
@@ -470,12 +591,14 @@ export function usePopupBridge(activeView: PopupView) {
           type: "popup_send_resource",
           resourceId,
         });
+        setBackgroundUnavailable(false);
         if (!result.ok) {
           throw new Error(result.message || "发送资源失败");
         }
         await refreshState(activeViewRef.current);
         setFlash(result.message || "资源处理成功", "success");
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "发送资源失败"), "error");
       } finally {
         updateBusyState(setBusyResourceIds, resourceId, false);
@@ -493,6 +616,7 @@ export function usePopupBridge(activeView: PopupView) {
           type: "popup_merge_resources",
           resourceIds: ids,
         });
+        setBackgroundUnavailable(false);
         if (!result.ok) {
           throw new Error(result.message || "在线合并失败");
         }
@@ -500,6 +624,7 @@ export function usePopupBridge(activeView: PopupView) {
         setFlash(result.message || "资源已发送到 Ghost Downloader", "success");
         return true;
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "在线合并失败"), "error");
         return false;
       } finally {
@@ -522,12 +647,14 @@ export function usePopupBridge(activeView: PopupView) {
           feature,
           tabId: payload.tabId,
         });
+        setBackgroundUnavailable(false);
         if (!result.ok) {
           throw new Error(result.message || "功能切换失败");
         }
         await refreshState(activeViewRef.current);
         setFlash(result.message || "功能状态已更新", "success");
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "功能切换失败"), "error");
       } finally {
         setBusyFeature(feature, false);
@@ -548,7 +675,9 @@ export function usePopupBridge(activeView: PopupView) {
           index,
         });
         applyPopupState(next);
+        setBackgroundUnavailable(false);
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "切换媒体失败"), "error");
       }
     },
@@ -565,6 +694,7 @@ export function usePopupBridge(activeView: PopupView) {
             action: nextAction,
             value: nextValue,
           });
+          setBackgroundUnavailable(false);
           if (!result.ok) {
             throw new Error(result.message || "媒体控制失败");
           }
@@ -610,6 +740,7 @@ export function usePopupBridge(activeView: PopupView) {
         await sendDesktopMediaAction(action, value);
         await refreshState("advanced");
       } catch (error) {
+        setBackgroundUnavailable(true);
         setFlash(getErrorMessage(error, "媒体控制失败"), "error");
       } finally {
         if (mountedRef.current) {
@@ -617,7 +748,7 @@ export function usePopupBridge(activeView: PopupView) {
         }
       }
     },
-    [payload.mediaPlaybackState.frameId, payload.selectedMediaIndex, payload.selectedMediaTabId, refreshState, setFlash],
+    [payload.mediaPlaybackState.frameId, payload.mediaPlaybackState.muted, payload.selectedMediaIndex, payload.selectedMediaTabId, refreshState, setFlash],
   );
 
   const sortedTasks = useMemo(() => sortTasks(payload.tasks), [payload.tasks]);
@@ -626,6 +757,7 @@ export function usePopupBridge(activeView: PopupView) {
     ...payload,
     flashMessage,
     flashTone,
+    backgroundUnavailable,
     isConnected: payload.connectionState === "connected",
     isSavingToken,
     isSavingServerUrl,
@@ -651,6 +783,5 @@ export function usePopupBridge(activeView: PopupView) {
     isTaskBusy: (taskId: string) => busyTaskIds.has(taskId),
     isResourceBusy: (resourceId: string) => busyResourceIds.has(resourceId),
     isFeatureBusy: (featureKey: AdvancedFeatureKey) => busyFeatureKeys.has(featureKey),
-    
   };
 }
