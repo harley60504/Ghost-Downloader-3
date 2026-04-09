@@ -143,6 +143,7 @@ async function showTaskCreatedNotification(message?: string) {
 const resourceBridge = createResourceBridge({
   isDesktopReady: () => desktopBridge.isReady(),
   sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
+  shouldInterceptDownloads: () => interceptDownloads,
   shouldBlockFirefoxIntercept: shouldBlockByBlacklist,
   shouldNotifyOnTaskCreated: () => notifyOnTaskCreated,
   notifyTaskCreated: (message?: string) => showTaskCreatedNotification(message),

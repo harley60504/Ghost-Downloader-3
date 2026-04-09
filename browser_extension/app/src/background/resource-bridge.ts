@@ -72,6 +72,7 @@ const DOWNLOAD_EXTENSIONS = new Set(["zip", "7z", "rar", "pdf", "exe", "msi", "d
 export function createResourceBridge(options: {
   sendDesktopRequest: DesktopRequestSender;
   isDesktopReady: () => boolean;
+  shouldInterceptDownloads: () => boolean;
   shouldBlockFirefoxIntercept: (input: {
     url: string;
     filename: string;
@@ -957,6 +958,10 @@ export function createResourceBridge(options: {
   function tryInterceptFirefoxDownload(
     details: chrome.webRequest.OnHeadersReceivedDetails,
   ): chrome.webRequest.BlockingResponse | void {
+    if (!options.shouldInterceptDownloads()) {
+      return;
+    }
+
     if (!options.isDesktopReady()) {
       return;
     }
