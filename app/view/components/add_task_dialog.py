@@ -27,7 +27,7 @@ from app.bases.models import Task
 from app.services.core_service import coreService
 from app.services.feature_service import featureService
 from app.supports.config import DEFAULT_HEADERS, cfg
-from app.supports.utils import getProxies
+from app.supports.utils import getProxies, bringWindowToTop
 from app.view.components.card_widgets import (
     ParseResultHeaderCardWidget,
     ParseSettingHeaderCardWidget,
@@ -107,11 +107,12 @@ class _StandaloneWrapper(FramelessDialog):
         titleBar.maxBtn.hide()
         titleBar.iconLabel.hide()
         titleBar.setDoubleClickEnabled(False)
+        titleBar.setFixedHeight(30)
         self.setTitleBar(titleBar)
         self.setWindowTitle(addTaskDialog.tr("添加任务"))
 
         self._contentLayout = QVBoxLayout(self)
-        self._contentLayout.setContentsMargins(0, 48, 0, 0)
+        self._contentLayout.setContentsMargins(0, 30, 0, 0)
         self._contentLayout.setSpacing(0)
 
         FluentStyleSheet.DIALOG.apply(self)
@@ -545,12 +546,12 @@ class AddTaskDialog(MessageBoxBase):
             wrapper.hide()
             wrapper.takeContent(self.widget)
         self.widget.setStyleSheet("")
-        self._hBoxLayout.addWidget(self.widget, 1, Qt.AlignCenter)
+        self._hBoxLayout.addWidget(self.widget, 1, Qt.AlignmentFlag.AlignCenter)
         self.widget.show()
         self.titleLabel.show()
         self.setParent(self._maskParent)
-        self.setWindowFlags(Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         if self._maskParent is not None:
             self._maskParent.installEventFilter(self)
         self._isStandaloneMode = False
@@ -558,8 +559,7 @@ class AddTaskDialog(MessageBoxBase):
     def showStandalone(self):
         """Show dialog as an independent standalone window."""
         if self._isStandaloneMode and self._standaloneWrapper is not None and self._standaloneWrapper.isVisible():
-            self._standaloneWrapper.raise_()
-            self._standaloneWrapper.activateWindow()
+            bringWindowToTop(self._standaloneWrapper)
             return
 
         if self.isVisible() and not self._isStandaloneMode:
@@ -572,11 +572,7 @@ class AddTaskDialog(MessageBoxBase):
         if not self._isStandaloneMode:
             self._enterStandaloneMode()
 
-        wrapper = self._standaloneWrapper
-        wrapper.resize(self.widget.width(), 600)
-        wrapper.show()
-        wrapper.raise_()
-        wrapper.activateWindow()
+        bringWindowToTop(self._standaloneWrapper)
 
     def showMask(self) -> int:
         """Show dialog as a mask overlay (blocks via exec).
