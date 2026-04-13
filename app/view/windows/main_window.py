@@ -312,10 +312,10 @@ class MainWindow(MSFluentWindow):
                     pendingUrls.append(url)
                     continue
 
-                dialog.appendUrlWithPayload(url, payloadOverride)
+                dialog.addUrlWithPayload(url, payloadOverride)
 
             if pendingUrls:
-                dialog.appendUrls(pendingUrls)
+                dialog.addUrls(pendingUrls)
 
         if dialog.isVisible() and not dialog.isStandaloneMode:
             dialog.raise_()
@@ -331,7 +331,7 @@ class MainWindow(MSFluentWindow):
         Other platforms: standalone mode.
         """
         dialog = self._getAddTaskDialog()
-        dialog.appendParsedTasks(tasks)
+        dialog.addParsedTasks(tasks)
 
         if sys.platform == "darwin":
             bringWindowToTop(self)
