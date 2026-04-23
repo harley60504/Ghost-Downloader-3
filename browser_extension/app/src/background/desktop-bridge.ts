@@ -244,7 +244,7 @@ export function createDesktopBridge() {
   async function sendRequest<T extends DesktopRequestResult>(payload: Record<string, unknown>): Promise<T> {
     if (!isReady() || !desktopSocket) {
       await connect(true);
-      await waitForReady(isAndroidFirefoxLike() ? 12000 : 8000);
+      await waitForReady(8000);
     }
 
     if (!desktopSocket || desktopSocket.readyState !== WebSocket.OPEN) {

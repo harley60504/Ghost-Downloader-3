@@ -50,6 +50,16 @@ type CatCatchResponseMeta = {
 type DesktopRequestSender = <T extends DesktopRequestResult>(payload: Record<string, unknown>) => Promise<T>;
 type ResourceBucket = Map<string, CapturedResource>;
 
+type PreparedBrowserDownload = {
+  finalUrl: string;
+  filename: string;
+  mime: string;
+  headers: Record<string, string>;
+  size: number;
+  supportsRange: boolean;
+  matchedResource: CapturedResource | null;
+};
+
 const HEADER_WHITELIST = new Set(["referer", "origin", "cookie", "authorization"]);
 const DIRECT_MEDIA_EXTENSIONS = new Set([
   "mp4",
@@ -783,6 +793,149 @@ export function createResourceBridge(options: {
     return { ...(resolveHeaderSnapshotLoosely(url)?.headers ?? {}) };
   }
 
+  function mergeReplayHeaders(
+    ...sources: Array<Record<string, string> | undefined | null>
+  ): Record<string, string> {
+    const merged: Record<string, string> = {};
+
+    for (const source of sources) {
+      for (const [key, value] of Object.entries(source ?? {})) {
+        const name = String(key ?? "").trim().toLowerCase();
+        const text = String(value ?? "").trim();
+        if (!name || !text) {
+          continue;
+        }
+        merged[name] = text;
+      }
+    }
+
+    return normalizeHeaders(merged);
+  }
+
+  async function waitForReplayContext(
+    rawUrl: string,
+    timeoutMs = 1200,
+  ): Promise<{
+    matchedResource: CapturedResource | null;
+    headerSnapshot: BridgeHeaderSnapshot | null;
+  }> {
+    const startedAt = Date.now();
+
+    let matchedResource = findBestResourceForDownload(rawUrl);
+    let headerSnapshot = resolveHeaderSnapshotLoosely(rawUrl);
+
+    while (!matchedResource && !headerSnapshot && Date.now() - startedAt < timeoutMs) {
+      await new Promise((resolve) => self.setTimeout(resolve, 100));
+      matchedResource = findBestResourceForDownload(rawUrl);
+      headerSnapshot = resolveHeaderSnapshotLoosely(rawUrl);
+    }
+
+    return {
+      matchedResource,
+      headerSnapshot,
+    };
+  }
+
+  async function prepareBrowserDownloadHandoff(
+    downloadItem: chrome.downloads.DownloadItem,
+  ): Promise<PreparedBrowserDownload | null> {
+    const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
+    if (!isCapturableUrl(finalUrl)) {
+      return null;
+    }
+
+    const { matchedResource, headerSnapshot } = await waitForReplayContext(finalUrl, 1200);
+
+    // 沒有任何可重播上下文就不要攔，直接讓瀏覽器自己下
+    if (!matchedResource && !headerSnapshot) {
+      return null;
+    }
+
+    const filename =
+      trimFilename(matchedResource?.filename ?? "") ||
+      trimFilename(downloadItem.filename) ||
+      trimFilename(filenameFromUrl(finalUrl)) ||
+      "resource";
+
+    const mime = String(matchedResource?.mime ?? "").toLowerCase();
+
+    const headers = mergeReplayHeaders(
+      matchedResource?.requestHeaders,
+      headerSnapshot?.headers,
+      downloadItem.referrer ? { referer: downloadItem.referrer } : undefined,
+      matchedResource?.referer ? { referer: matchedResource.referer } : undefined,
+    );
+
+    const size =
+      matchedResource?.size && matchedResource.size > 0
+        ? matchedResource.size
+        : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+          ? downloadItem.totalBytes
+          : typeof downloadItem.fileSize === "number" && downloadItem.fileSize > 0
+            ? downloadItem.fileSize
+            : 0;
+
+    const supportsRange =
+      matchedResource?.supportsRange ??
+      headerSnapshot?.supportsRange ??
+      (downloadItem.canResume === true);
+
+    return {
+      finalUrl,
+      filename,
+      mime,
+      headers,
+      size,
+      supportsRange,
+      matchedResource,
+    };
+  }
+
+  async function handoffPreparedBrowserDownload(
+    prepared: PreparedBrowserDownload,
+  ): Promise<DesktopRequestResult> {
+    try {
+      const result = await options.sendDesktopRequest<DesktopRequestResult>({
+        type: "create_task",
+        source: "download",
+        title: prepared.filename,
+        payload: {
+          url: prepared.finalUrl,
+          headers: prepared.headers,
+          filename: prepared.filename,
+          size: prepared.size,
+          supportsRange: prepared.supportsRange,
+        },
+      });
+
+      if (result.ok) {
+        if (prepared.matchedResource) {
+          markResourceSent(prepared.matchedResource.id);
+        }
+
+        await openActionPopup();
+
+        if (options.shouldNotifyOnTaskCreated()) {
+          await options.notifyTaskCreated(
+            result.message || `已拦截下载并加入任务：${prepared.filename}`,
+          );
+        }
+
+        return {
+          ...result,
+          message: result.message || `已拦截下载并加入任务：${prepared.filename}`,
+        };
+      }
+
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "发送下载任务失败",
+      };
+    }
+  }
+
   function otherResourcesForTab(activeTabId: number | null): CapturedResource[] {
     const result: CapturedResource[] = [];
     for (const [tabId, bucket] of resourceCache.entries()) {
@@ -951,8 +1104,21 @@ export function createResourceBridge(options: {
     downloadItem: chrome.downloads.DownloadItem,
     interceptDownloads: boolean,
   ): boolean {
-    const finalUrl = downloadItem.finalUrl || downloadItem.url;
-    return Boolean(interceptDownloads && options.isDesktopReady() && isCapturableUrl(finalUrl));
+    const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
+
+    if (!interceptDownloads) {
+      return false;
+    }
+
+    if (!options.isDesktopReady()) {
+      return false;
+    }
+
+    if (!isCapturableUrl(finalUrl)) {
+      return false;
+    }
+
+    return true;
   }
 
   function tryInterceptFirefoxDownload(
@@ -1004,12 +1170,15 @@ export function createResourceBridge(options: {
       return;
     }
 
-    const headers = resolveHeadersForDownload(details.url);
-    const referer = headers.referer || details.initiator || "";
+    const matchedResource = findBestResourceForDownload(details.url);
+    const headerSnapshot = resolveHeaderSnapshotLoosely(details.url);
 
-    if (referer && !headers.referer) {
-      headers.referer = referer;
-    }
+    const headers = mergeReplayHeaders(
+      matchedResource?.requestHeaders,
+      headerSnapshot?.headers,
+      matchedResource?.referer ? { referer: matchedResource.referer } : undefined,
+      details.initiator ? { referer: details.initiator } : undefined,
+    );
 
     void (async () => {
       try {
@@ -1042,57 +1211,12 @@ export function createResourceBridge(options: {
   }
 
   async function handoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem) {
-    const finalUrl = downloadItem.finalUrl || downloadItem.url;
-    const matchedResource = findBestResourceForDownload(finalUrl);
-    const headerSnapshot = resolveHeaderSnapshotLoosely(finalUrl);
-
-    const resolvedFilename =
-      trimFilename(matchedResource?.filename ?? "") ||
-      trimFilename(downloadItem.filename) ||
-      trimFilename(filenameFromUrl(finalUrl)) ||
-      "resource";
-
-    const headers = resolveHeadersForDownload(finalUrl);
-    if (downloadItem.referrer && !headers.referer) {
-      headers.referer = downloadItem.referrer;
+    const prepared = await prepareBrowserDownloadHandoff(downloadItem);
+    if (!prepared) {
+      return;
     }
 
-    const resolvedSize =
-      matchedResource?.size && matchedResource.size > 0
-        ? matchedResource.size
-        : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-          ? downloadItem.totalBytes
-          : 0;
-
-    const resolvedSupportsRange =
-      matchedResource?.supportsRange ??
-      headerSnapshot?.supportsRange ??
-      (downloadItem.canResume === true);
-
-    try {
-      const result = await options.sendDesktopRequest<DesktopRequestResult>({
-        type: "create_task",
-        source: "download",
-        title: resolvedFilename,
-        payload: {
-          url: finalUrl,
-          headers,
-          filename: resolvedFilename,
-          size: resolvedSize,
-          supportsRange: resolvedSupportsRange,
-        },
-      });
-
-      if (result.ok) {
-        await openActionPopup();
-
-        if (options.shouldNotifyOnTaskCreated()) {
-          await options.notifyTaskCreated(`已拦截下载并加入任务：${resolvedFilename}`);
-        }
-      }
-    } catch {
-      // Browser download has already been intercepted; ignore desktop handoff failures here.
-    }
+    await handoffPreparedBrowserDownload(prepared);
   }
 
   async function sendHttpResourceToDesktop(resource: CapturedResource): Promise<DesktopRequestResult> {
@@ -1274,6 +1398,8 @@ export function createResourceBridge(options: {
     clearRequestHeaders,
     findBestResourceForDownload,
     handoffBrowserDownload,
+    handoffPreparedBrowserDownload,
+    prepareBrowserDownloadHandoff,
     shouldHandoffBrowserDownload,
     handleNavigationCommitted,
     handleRequestHeaders,

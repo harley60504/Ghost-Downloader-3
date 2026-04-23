@@ -210,24 +210,24 @@ function updateTaskCache() {
   }
 }
 
-function broadcastTaskUpdate() {
+async function broadcastTaskUpdate() {
   if (!cachedTaskState) {
     return;
   }
 
   try {
-    chrome.runtime.sendMessage({
+    await chrome.runtime.sendMessage({
       type: "task_update",
       payload: cachedTaskState,
     });
   } catch {
-    // Ignore popup not open / no receiver cases.
+    // popup 沒開、沒有接收端時，忽略即可
   }
 }
 
 function refreshAndBroadcastTaskState() {
   updateTaskCache();
-  broadcastTaskUpdate();
+  void broadcastTaskUpdate();
 }
 
 function startTaskCacheRefreshLoop() {
@@ -378,20 +378,21 @@ async function interceptBrowserDownload(
   options: { eraseFromHistory?: boolean } = {},
 ) {
   const rawUrl = String(downloadItem.finalUrl || downloadItem.url || "");
-  const matchedResource = resourceBridge.findBestResourceForDownload(rawUrl);
 
-  const blacklistFilename =
-    matchedResource?.filename ||
-    String(downloadItem.filename || "");
-  const blacklistMime = matchedResource?.mime || "";
-  const blacklistSize =
-    matchedResource?.size && matchedResource.size > 0
-      ? matchedResource.size
-      : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-        ? downloadItem.totalBytes
-        : typeof downloadItem.fileSize === "number" && downloadItem.fileSize > 0
-          ? downloadItem.fileSize
-          : -1;
+  if (!resourceBridge.shouldHandoffBrowserDownload(downloadItem, interceptDownloads)) {
+    return;
+  }
+
+  const prepared = await resourceBridge.prepareBrowserDownloadHandoff(downloadItem);
+
+  // 沒有足夠上下文就不要攔截，直接交給瀏覽器原生下載
+  if (!prepared) {
+    return;
+  }
+
+  const blacklistFilename = prepared.filename || String(downloadItem.filename || "");
+  const blacklistMime = prepared.mime || "";
+  const blacklistSize = prepared.size > 0 ? prepared.size : -1;
 
   if (
     shouldBlockByBlacklist({
@@ -404,20 +405,21 @@ async function interceptBrowserDownload(
     return;
   }
 
-  if (!resourceBridge.shouldHandoffBrowserDownload(downloadItem, interceptDownloads)) {
+  // 一旦上下文準備完成，就先取消瀏覽器下載，減少 Edge 下載面板跳出
+  try {
+    await cancelDownload(downloadItem.id);
+    await eraseDownloadFromHistory(downloadItem.id);
+  } catch {
+    // 忽略取消/清理失敗，避免直接中斷流程
+  }
+
+  const handoffResult = await resourceBridge.handoffPreparedBrowserDownload(prepared);
+
+  if (!handoffResult.ok) {
+    // 先不自動回退瀏覽器下載，避免需要 session/cookie 的站點重新下載又失敗
     return;
   }
 
-  try {
-    await cancelDownload(downloadItem.id);
-    if (options.eraseFromHistory) {
-      await eraseDownloadFromHistory(downloadItem.id);
-    }
-  } catch {
-    // Ignore cancellation cleanup failures; the browser download may continue as fallback.
-  }
-
-  await resourceBridge.handoffBrowserDownload(downloadItem);
   refreshAndBroadcastTaskState();
 }
 
