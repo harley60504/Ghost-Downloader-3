@@ -44,6 +44,11 @@ def _createTaskFromPayload(payload: dict) -> HttpTask | None:
         supportsRange=supportsRange,
         path=path,
     )
+
+    task._refreshDownloadInfoOnNextRun = (
+        fileSize in {SpecialFileSize.UNKNOWN, 0} or not supportsRange
+    )
+
     task.addStage(
         HttpTaskStage(
             stageIndex=1,
@@ -96,7 +101,12 @@ def _buildRangeProbeHeaders(headers: dict, rangeValue: str) -> dict:
     return requestHeaders
 
 
-async def _requestProbe(client: niquests.AsyncSession, url: str, headers: dict, proxies: dict) -> tuple[int, dict[str, str], str]:
+async def _requestProbe(
+    client: niquests.AsyncSession,
+    url: str,
+    headers: dict,
+    proxies: dict,
+) -> tuple[int, dict[str, str], str]:
     requestHeaders, requestCookies = splitRequestHeadersAndCookies(headers)
     response = await client.get(
         url,
@@ -133,10 +143,15 @@ async def _probeDownloadInfo(url: str, headers: dict, proxies: dict) -> tuple[in
 
         if supportsRange:
             if fileSize == SpecialFileSize.UNKNOWN:
-                logger.info(f"偏移 Range 探测成功, content-range: {responseHeaders.get('content-range', '')}, fileSize: unknown")
+                logger.info(
+                    "偏移 Range 探测成功, content-range: {}, fileSize: unknown",
+                    responseHeaders.get("content-range", ""),
+                )
             else:
                 logger.info(
-                    f"偏移 Range 探测成功, content-range: {responseHeaders.get('content-range', '')}, fileSize: {fileSize}"
+                    "偏移 Range 探测成功, content-range: {}, fileSize: {}",
+                    responseHeaders.get("content-range", ""),
+                    fileSize,
                 )
             return fileSize, True, finalUrl, responseHeaders
 
@@ -144,22 +159,28 @@ async def _probeDownloadInfo(url: str, headers: dict, proxies: dict) -> tuple[in
 
         if statusCode == 200:
             logger.info(
-                f"偏移 Range 探测返回 200, content-length: {responseHeaders.get('content-length', '')}"
+                "偏移 Range 探测返回 200, content-length: {}",
+                responseHeaders.get("content-length", ""),
             )
             if fileSize in {SpecialFileSize.UNKNOWN, 1}:
-                fallbackStatus, fallbackHeaders, _, = await _requestProbe(
+                fallbackStatus, fallbackHeaders, _ = await _requestProbe(
                     client,
                     url,
-                    _buildRangeProbeHeaders(headers, "bytes=0-0"),  # bytes=0- 和 bytes=0-0 哪个更好存疑
+                    _buildRangeProbeHeaders(headers, "bytes=0-0"),
                     proxies,
                 )
                 fallbackSize = _parseContentRangeTotal(fallbackHeaders)
                 if fallbackStatus == 206 and "content-range" in fallbackHeaders:
                     if fallbackSize == SpecialFileSize.UNKNOWN:
-                        logger.info(f"回退 Range 探测成功, content-range: {fallbackHeaders.get('content-range', '')}, fileSize: unknown")
+                        logger.info(
+                            "回退 Range 探测成功, content-range: {}, fileSize: unknown",
+                            fallbackHeaders.get("content-range", ""),
+                        )
                     else:
                         logger.info(
-                            f"回退 Range 探测成功, content-range: {fallbackHeaders.get('content-range', '')}, fileSize: {fallbackSize}"
+                            "回退 Range 探测成功, content-range: {}, fileSize: {}",
+                            fallbackHeaders.get("content-range", ""),
+                            fallbackSize,
                         )
                     return fallbackSize, True, finalUrl, fallbackHeaders
 
@@ -171,7 +192,7 @@ async def _probeDownloadInfo(url: str, headers: dict, proxies: dict) -> tuple[in
         if fileSize == SpecialFileSize.UNKNOWN:
             logger.info("文件大小未知，按不支持断点续传处理")
         else:
-            logger.info(f"文件大小已知但未探测到 Range 支持, fileSize: {fileSize}")
+            logger.info("文件大小已知但未探测到 Range 支持, fileSize: {}", fileSize)
 
         return fileSize, False, finalUrl, responseHeaders
     finally:
@@ -179,15 +200,14 @@ async def _probeDownloadInfo(url: str, headers: dict, proxies: dict) -> tuple[in
 
 
 def _extractFileName(url: str, headers: dict) -> str:
-
     fileName = ""
 
     # Content-Disposition (RFC 6266/5987)
     cd = headers.get("content-disposition", "")
     if cd:
         msg = Message()
-        msg['Content-Disposition'] = cd
-        params = msg.get_params(header='Content-Disposition')
+        msg["Content-Disposition"] = cd
+        params = msg.get_params(header="Content-Disposition")
         paramDict = {k.lower(): v for k, v in params if isinstance(v, str)}
 
         if "filename*" in paramDict:
@@ -197,17 +217,17 @@ def _extractFileName(url: str, headers: dict) -> str:
                 if len(parts) == 3:
                     encoding, _, encodedText = parts
                     fileName = unquote(encodedText, encoding=encoding or "utf-8")
-                    logger.info(f"方案 A 获取文件名: {fileName}")
+                    logger.info("方案 A 获取文件名: {}", fileName)
 
         if not fileName and "filename" in paramDict:
             fileName = paramDict["filename"].strip("\"' ")
-            logger.info(f"方案 B 获取文件名: {fileName}")
+            logger.info("方案 B 获取文件名: {}", fileName)
 
     # Content-Location (RFC 7231)
     if not fileName and "content-location" in headers:
         cl = headers["content-location"]
         fileName = unquote(urlparse(cl).path.split("/")[-1])
-        logger.info(f"方案 C 获取文件名: {fileName}")
+        logger.info("方案 C 获取文件名: {}", fileName)
 
     # OSS/S3 覆盖响应头
     if not fileName:
@@ -218,16 +238,15 @@ def _extractFileName(url: str, headers: dict) -> str:
             match = re.search(r'filename\s*=\s*["\']?([^"\';]+)["\']?', rcd, re.IGNORECASE)
             if match:
                 fileName = unquote(match.group(1)).strip("\"' ")
-                logger.info(f"方案 D 获取文件名: {fileName}")
+                logger.info("方案 D 获取文件名: {}", fileName)
 
     # URL 路径解析
     if not fileName:
         path = urlparse(url).path
         if path and "/" in path:
-            # 移除路径中的参数 (如 ;jsessionid=...)
             cleanPath = path.split(";")[0]
             fileName = unquote(cleanPath.split("/")[-1])
-            logger.info(f"方案 E 获取文件名: {fileName}")
+            logger.info("方案 E 获取文件名: {}", fileName)
 
     # 兜底处理
     if not fileName:
@@ -235,7 +254,7 @@ def _extractFileName(url: str, headers: dict) -> str:
         standardExt = guess_extension(contentType) or ""
         timestamp = int(time_ns())
         fileName = f"file_{timestamp}.{standardExt}"
-        logger.info(f"方案 F 获取文件名: {fileName}")
+        logger.info("方案 F 获取文件名: {}", fileName)
     else:
         if "." not in fileName:
             contentType = headers.get("content-type", "").split(";")[0].lower().strip()
@@ -244,16 +263,31 @@ def _extractFileName(url: str, headers: dict) -> str:
 
     return sanitizeFilename(fileName, fallback=f"file_{int(time_ns())}")
 
+
 async def parse(payload: dict) -> HttpTask:
-    url: str = payload['url']
-    headers: dict = payload.get('headers', DEFAULT_HEADERS)
-    proxies: dict = payload.get('proxies', getProxies())
-    blockNum: int = payload.get('preBlockNum', cfg.preBlockNum.value)
-    path: Path = payload.get('path', Path(cfg.downloadFolder.value))
+    url: str = payload["url"]
+    headers: dict = payload.get("headers", DEFAULT_HEADERS)
+    proxies: dict = payload.get("proxies", getProxies())
+    blockNum: int = payload.get("preBlockNum", cfg.preBlockNum.value)
+    path: Path = payload.get("path", Path(cfg.downloadFolder.value))
+
     fileSize, supportsRange, finalUrl, head = await _probeDownloadInfo(url, headers, proxies)
+
+    # payload 已有更可信大小時，保留它，避免 probe 的 UNKNOWN 覆蓋掉已知大小
+    payloadSize = payload.get("size")
+    if (
+        fileSize in {SpecialFileSize.UNKNOWN, 0}
+        and isinstance(payloadSize, int)
+        and payloadSize > 0
+    ):
+        fileSize = payloadSize
 
     # 获取文件名
     fileName = _extractFileName(finalUrl, head)
+    if not fileName:
+        payloadFilename = sanitizeFilename(str(payload.get("filename") or "").strip(), fallback="")
+        if payloadFilename:
+            fileName = payloadFilename
 
     resolvePath = str(path / fileName)
 
@@ -265,7 +299,7 @@ async def parse(payload: dict) -> HttpTask:
         proxies=proxies,
         blockNum=blockNum,
         supportsRange=supportsRange,
-        path=path
+        path=path,
     )
     stage = HttpTaskStage(
         stageIndex=1,
@@ -286,7 +320,15 @@ class HttpPack(FeaturePack):
     taskType = HttpTask
 
     async def createTaskFromPayload(self, payload: dict) -> Task | None:
-        return _createTaskFromPayload(payload)
+        url = str(payload.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return None
+
+        try:
+            return await parse(payload)
+        except Exception as e:
+            logger.opt(exception=e).warning("createTaskFromPayload probe failed, fallback to payload task")
+            return _createTaskFromPayload(payload)
 
     def canHandle(self, url: str) -> bool:
         return urlparse(url).scheme.lower() in {"http", "https"}
