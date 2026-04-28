@@ -21,10 +21,9 @@
 
 <a href="https://trendshift.io/repositories/13847" target="_blank"><img src="https://trendshift.io/api/badge/repositories/13847" alt="XiaoYouChR%2FGhost-Downloader-3 | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-<h3>
-    AI 赋能的新一代跨平台多线程下载器
-</h3>
+### AI 赋能的新一代跨平台多线程下载器
 
+[![AtomGit Stars][atomgit-stars-shield]][atomgit-stars-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
@@ -32,11 +31,7 @@
 [![Downloads][downloads-shield]][release-url]
 [![QQGroup](https://img.shields.io/badge/QQ_Group-756042420-blue.svg?color=blue&style=for-the-badge)](https://qm.qq.com/q/gPk6FR1Hby)
 
-<h4>
-  <a href="https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=bug_report.yml">Bug 报告</a>
-·    
-  <a href="https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=feature_request.yml">功能需求</a>
-</h4>
+##### [Bug 报告](https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=bug_report.yml) · [功能需求](https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=feature_request.yml)
 
 </div>
 
@@ -202,6 +197,8 @@ Copyright © 2025 XiaoYouChR.
 [forks-url]: https://github.com/XiaoYouChR/Ghost-Downloader-3/network/members
 [stars-shield]: https://img.shields.io/github/stars/XiaoYouChR/Ghost-Downloader-3.svg?style=for-the-badge
 [stars-url]: https://github.com/XiaoYouChR/Ghost-Downloader-3/stargazers
+[atomgit-stars-shield]: https://img.shields.io/badge/dynamic/xml?style=for-the-badge&label=AtomGit%20Stars&color=red&url=https%3A%2F%2Fgitcode.com%2FXiaoYouChR%2FGhost-Downloader-3%2Fstar%2Fbadge.svg&query=string%28%2F%2F*%5Blocal-name%28%29%3D%22span%22%20and%20contains%28%40class%2C%22star-num%22%29%5D%29
+[atomgit-stars-url]: https://gitcode.com/XiaoYouChR/Ghost-Downloader-3
 [issues-shield]: https://img.shields.io/github/issues/XiaoYouChR/Ghost-Downloader-3.svg?style=for-the-badge
 [issues-url]: https://github.com/XiaoYouChR/Ghost-Downloader-3/issues
 [product-screenshot]: app/assets/screenshot.png

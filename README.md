@@ -21,9 +21,7 @@
 
 <a href="https://trendshift.io/repositories/13847" target="_blank"><img src="https://trendshift.io/api/badge/repositories/13847" alt="XiaoYouChR%2FGhost-Downloader-3 | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-<h3>
-    AI-powered next-generation cross-platform multithreaded downloader
-</h3>
+### AI-powered next-generation cross-platform multithreaded downloader
 
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
@@ -32,11 +30,7 @@
 [![Downloads][downloads-shield]][release-url]
 [![QQGroup](https://img.shields.io/badge/QQ_Group-756042420-blue.svg?color=blue&style=for-the-badge)](https://qm.qq.com/q/gPk6FR1Hby)
 
-<h4>
-  <a href="https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=bug_report.yml">Report Bug</a>
-·    
-  <a href="https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=feature_request.yml">Request Feature</a>
-</h4>
+##### [Report Bug](https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=bug_report.yml) · [Request Feature](https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/new?template=feature_request.yml)
 
 </div>
 
