@@ -264,7 +264,6 @@ export function createResourceBridge(options: {
   function pruneHeaderSnapshots() {
     const now = Date.now();
     const snapshots = [...headerSnapshotsByUrl.values()]
-      .map((snapshot) => normalizeBridgeHeaderSnapshot(snapshot))
       .filter((snapshot) => snapshot.url && now - snapshot.capturedAt <= HEADER_EXPIRATION_MS)
       .sort((left, right) => right.capturedAt - left.capturedAt)
       .slice(0, HEADER_SNAPSHOT_LIMIT);
@@ -422,35 +421,34 @@ export function createResourceBridge(options: {
   }
 
   function cacheResource(resource: CapturedResource) {
-    const normalized = normalizeCapturedResource(resource);
-    const bucket = bucketForTab(normalized.tabId);
-    const existing = bucket.get(normalized.id);
+    const bucket = bucketForTab(resource.tabId);
+    const existing = bucket.get(resource.id);
     const merged: CapturedResource = existing
       ? {
           ...existing,
-          ...normalized,
-          pageTitle: normalized.pageTitle || existing.pageTitle,
-          pageUrl: normalized.pageUrl || existing.pageUrl,
-          filename: normalized.filename || existing.filename,
-          mime: normalized.mime || existing.mime,
-          size: normalized.size > 0 ? normalized.size : existing.size,
-          supportsRange: normalized.supportsRange || existing.supportsRange,
-          referer: normalized.referer || existing.referer,
+          ...resource,
+          pageTitle: resource.pageTitle || existing.pageTitle,
+          pageUrl: resource.pageUrl || existing.pageUrl,
+          filename: resource.filename || existing.filename,
+          mime: resource.mime || existing.mime,
+          size: resource.size > 0 ? resource.size : existing.size,
+          supportsRange: resource.supportsRange || existing.supportsRange,
+          referer: resource.referer || existing.referer,
           requestHeaders: {
-            ...normalized.requestHeaders,
+            ...resource.requestHeaders,
             ...existing.requestHeaders,
           },
-          capturedAt: Math.max(existing.capturedAt, normalized.capturedAt),
-          sentToDesktopAt: existing.sentToDesktopAt ?? normalized.sentToDesktopAt,
+          capturedAt: Math.max(existing.capturedAt, resource.capturedAt),
+          sentToDesktopAt: existing.sentToDesktopAt ?? resource.sentToDesktopAt,
         }
-      : normalized;
+      : resource;
 
     bucket.set(merged.id, merged);
     resourcesById.set(merged.id, merged);
     const mergedUrl = normalizeUrl(merged.url, true);
     if (mergedUrl && (merged.size > 0 || merged.mime || merged.supportsRange)) {
       for (const resource of resourcesById.values()) {
-        if (resource.id === merged.id || normalizeUrl(resource.url, true) !== mergedUrl) {
+        if (resource.id === merged.id || !resource.id.endsWith(`:${mergedUrl}`)) {
           continue;
         }
         resource.size = merged.size > 0 ? merged.size : resource.size;
@@ -459,15 +457,15 @@ export function createResourceBridge(options: {
         resource.supportsRange = merged.supportsRange || resource.supportsRange;
       }
     }
-    trimBucket(normalized.tabId);
+    trimBucket(resource.tabId);
     scheduleBridgeStatePersist();
   }
 
   function findResourceByUrl(rawUrl: string): CapturedResource | null {
-    const normalizedUrl = normalizeUrl(rawUrl, true);
+    const resourceIdSuffix = `:${normalizeUrl(rawUrl, true)}`;
     let matched: CapturedResource | null = null;
     for (const resource of resourcesById.values()) {
-      if (normalizeUrl(resource.url, true) !== normalizedUrl) {
+      if (!resource.id.endsWith(resourceIdSuffix)) {
         continue;
       }
       if (matched == null || resource.capturedAt > matched.capturedAt) {
@@ -492,11 +490,10 @@ export function createResourceBridge(options: {
     tabId: number | null,
     supportsRange: boolean,
   ) {
-    const normalized = normalizeHeaders(headers);
     const existing = headerSnapshotsByUrl.get(url);
     const mergedHeaders = {
       ...(existing?.headers ?? {}),
-      ...normalized,
+      ...headers,
     };
     const mergedSupportsRange = supportsRange || Boolean(existing?.supportsRange);
     if (Object.keys(mergedHeaders).length === 0 && !mergedSupportsRange) {
@@ -621,7 +618,7 @@ export function createResourceBridge(options: {
     const tab = await getTab(tabId);
     const headerSnapshot = resolveHeaderSnapshot(payload.url);
     const headers = {
-      ...normalizeHeaders(headerSnapshot?.headers),
+      ...(headerSnapshot?.headers ?? {}),
       ...normalizeHeaders(payload.requestHeaders),
     };
     const filename = resolveBridgeFilename(payload);
@@ -661,7 +658,7 @@ export function createResourceBridge(options: {
 
     const tab = await getTab(tabId);
     const headerSnapshot = resolveHeaderSnapshot(details.url);
-    const headers = normalizeHeaders(headerSnapshot?.headers);
+    const headers = { ...(headerSnapshot?.headers ?? {}) };
     const referer = headers.referer || (details.initiator && details.initiator !== "null" ? details.initiator : tab?.url) || "";
     if (referer) {
       headers.referer = referer;
@@ -694,7 +691,8 @@ export function createResourceBridge(options: {
     }
 
     const tab = await getTab(tabId);
-    const headers = normalizeHeaders(Object.fromEntries((details.requestHeaders ?? []).map((header) => [header.name ?? "", header.value ?? ""])));
+    const headerSnapshot = resolveHeaderSnapshot(details.url);
+    const headers = { ...(headerSnapshot?.headers ?? {}) };
     const referer = headers.referer || (details.initiator && details.initiator !== "null" ? details.initiator : tab?.url) || "";
     if (referer) {
       headers.referer = referer;
@@ -709,7 +707,7 @@ export function createResourceBridge(options: {
       filename: trimFilename(filenameFromUrl(details.url)) || "resource",
       mime: "",
       size: 0,
-      supportsRange: (details.requestHeaders ?? []).some((header) => header.name?.toLowerCase() === "range"),
+      supportsRange: Boolean(headerSnapshot?.supportsRange),
       referer,
       requestHeaders: headers,
       capturedAt: Date.now(),
