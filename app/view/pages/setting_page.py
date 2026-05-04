@@ -11,7 +11,7 @@ from qfluentwidgets import SettingCardGroup, RangeSettingCard, FluentIcon, Switc
     InfoBarPosition, ToolButton, ToolTipFilter
 
 from app.services.browser_service import BrowserService
-from app.supports.config import cfg, EDGE_ADDONS_URL, CHROME_ADDONS_URL, FIREFOX_ADDONS_URL, AUTHOR_URL, AUTHOR, YEAR, \
+from app.supports.config import cfg, EDGE_ADDONS_URL, FIREFOX_ADDONS_URL, AUTHOR_URL, AUTHOR, YEAR, \
     VERSION, FEEDBACK_URL
 from app.supports.utils import openAppLogFolder
 from app.view.components.setting_cards import SpinBoxSettingCard, SelectFolderSettingCard, ProxySettingCard
@@ -170,12 +170,12 @@ class SettingPage(ScrollArea):
             5, self.installEdgeAddonsBtn, 0, Qt.AlignmentFlag.AlignRight
         )
         self.installExtensionCard.hBoxLayout.insertSpacing(6, 16)
-        self.installChromeAddonsBtn = HyperlinkButton(self.installExtensionCard)
-        self.installChromeAddonsBtn.setText(self.tr("Chrome"))
-        self.installChromeAddonsBtn.setUrl(CHROME_ADDONS_URL)
-        self.installExtensionCard.hBoxLayout.insertWidget(
-            5, self.installChromeAddonsBtn, 0, Qt.AlignmentFlag.AlignRight
-        )
+        # self.installChromeAddonsBtn = HyperlinkButton(self.installExtensionCard)
+        # self.installChromeAddonsBtn.setText(self.tr("Chrome"))
+        # self.installChromeAddonsBtn.setUrl(CHROME_ADDONS_URL)
+        # self.installExtensionCard.hBoxLayout.insertWidget(
+        #     5, self.installChromeAddonsBtn, 0, Qt.AlignmentFlag.AlignRight
+        # )
         self.installExtensionCard.hBoxLayout.insertSpacing(6, 16)
         self.installExtensionGuidanceCard = PushSettingCard(
             self.tr("查看安装指南"),
