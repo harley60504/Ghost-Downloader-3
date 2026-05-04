@@ -38,6 +38,9 @@ function createManifest(target) {
       gecko: {
         id: firefoxAddonId,
         strict_min_version: "113.0",
+        data_collection_permissions: {
+          required: ["browsingActivity", "websiteContent"],
+        },
       },
     };
     delete manifest.minimum_chrome_version;
