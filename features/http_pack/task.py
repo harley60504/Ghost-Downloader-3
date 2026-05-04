@@ -127,14 +127,15 @@ class HttpWorker(Worker):
         if self.stage.fileSize <= 0:
             return
 
-        slowestSubworker = max(self.subworkers, key=lambda subworker: subworker.end - subworker.progress)
-        remainingBytes = slowestSubworker.end - slowestSubworker.progress
+        slowestSubworker = max(self.subworkers, key=lambda subworker: subworker.end - subworker.progress + 1)
+        remainingBytes = slowestSubworker.end - slowestSubworker.progress + 1
         if remainingBytes < cfg.maxReassignSize.value * 1048576:
             return
         base = remainingBytes // 2
         remainder = remainingBytes % 2
-        slowestSubworker.end = slowestSubworker.progress + base + remainder
-        newSubworker = HttpSubworker(slowestSubworker.end + 1, slowestSubworker.end + 1, slowestSubworker.end + base)
+        oldEnd = slowestSubworker.end
+        slowestSubworker.end = slowestSubworker.progress + base + remainder - 1
+        newSubworker = HttpSubworker(slowestSubworker.end + 1, slowestSubworker.end + 1, oldEnd)
         self.subworkers.insert(self.subworkers.index(slowestSubworker) + 1, newSubworker)
         self.taskGroup.create_task(self.handleSubworker(newSubworker))
 
@@ -168,8 +169,9 @@ class HttpWorker(Worker):
 
                             await cfg.checkSpeedLimitation()
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
                     finally:
                         await res.close()
 
@@ -186,10 +188,12 @@ class HttpWorker(Worker):
                 try:
                     ftruncate(self.fileHandle, 0)
                     subworker.progress = 0
+                    requestHeaders = self.requestHeaders.copy()
+                    requestHeaders.pop("range", None)
 
                     res = await self.client.get(
                         self.stage.url,
-                        headers=self.requestHeaders,
+                        headers=requestHeaders,
                         cookies=self.requestCookies,
                         proxies=self.stage.proxies,
                         verify=cfg.SSLVerify.value,
@@ -198,17 +202,18 @@ class HttpWorker(Worker):
                     )
                     try:
                         res.raise_for_status()
-                        if res.status_code not in {200, 206}:
+                        if res.status_code != 200:
                             raise Exception(f"服务器返回了异常状态码：{res.status_code}")
 
-                        async for chunk in await res.iter_raw(chunk_size=65536):
+                        async for chunk in await res.iter_content(chunk_size=65536):
                             if not chunk:
                                 continue
 
                             await cfg.checkSpeedLimitation()
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
                     finally:
                         await res.close()
 
@@ -221,7 +226,7 @@ class HttpWorker(Worker):
                     )
                     await asyncio.sleep(5)
         else:  # 正常下载
-            while subworker.progress < subworker.end:
+            while subworker.progress <= subworker.end:
                 try:
                     res = await self.client.get(
                         self.stage.url,
@@ -240,12 +245,16 @@ class HttpWorker(Worker):
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
+                            remainingBytes = subworker.end - subworker.progress + 1
+                            if len(chunk) > remainingBytes:
+                                chunk = chunk[:remainingBytes]
                             await cfg.checkSpeedLimitation()
                             offset = subworker.progress
                             pwrite(self.fileHandle, chunk, offset)
-                            subworker.progress += 65536
-                            cfg.globalSpeed += 65536
-                            if subworker.progress >= subworker.end:
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
+                            if subworker.progress > subworker.end:
                                 break
                     except Exception as e:
                         raise e
@@ -253,7 +262,7 @@ class HttpWorker(Worker):
                         await res.close()
 
                     if subworker.progress > subworker.end:
-                        subworker.progress = subworker.end
+                        subworker.progress = subworker.end + 1
 
                 except Exception as e:
                     logger.opt(exception=e).error(
