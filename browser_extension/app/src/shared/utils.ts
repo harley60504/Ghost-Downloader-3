@@ -197,6 +197,15 @@ export function domainFromUrl(value: string): string {
   }
 }
 
+export function mimeFromUrl(value: string): string {
+  try {
+    const mime = new URL(value).searchParams.get("mime_type")?.replace(/_/g, "/").toLowerCase() ?? "";
+    return isCatCatchMedia("", mime) ? mime : "";
+  } catch {
+    return "";
+  }
+}
+
 export function filenameFromUrl(value: string): string {
   try {
     const url = new URL(value);

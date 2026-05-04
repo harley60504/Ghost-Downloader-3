@@ -6,6 +6,7 @@ import {
   domainFromUrl,
   fileExtension,
   filenameFromUrl,
+  mimeFromUrl,
   sortResourcesForOnlineMerge,
 } from "../shared/utils";
 import { isCatCatchMedia } from "../shared/cat-catch";
@@ -25,6 +26,7 @@ import {
   openActionPopup,
   queryTabs,
 } from "./chrome-helpers";
+import { pickSiteMediaResources } from "./media-download-adapters";
 
 type BridgeHeaderSnapshot = {
   url: string;
@@ -40,6 +42,8 @@ type BridgeResourcePayload = {
   filename?: string;
   mime?: string;
   ext?: string;
+  poster?: string;
+  resourceUrls?: string[];
   requestHeaders?: Record<string, string>;
 };
 
@@ -53,7 +57,49 @@ type NetworkResponseMeta = {
 type DesktopRequestSender = <T extends DesktopRequestResult>(payload: Record<string, unknown>) => Promise<T>;
 type ResourceBucket = Map<string, CapturedResource>;
 
-const HEADER_WHITELIST = new Set(["referer", "origin", "cookie", "authorization"]);
+const HEADER_WHITELIST = new Set([
+  "accept",
+  "accept-language",
+  "authorization",
+  "cookie",
+  "origin",
+  "referer",
+  "sec-ch-ua",
+  "sec-ch-ua-arch",
+  "sec-ch-ua-bitness",
+  "sec-ch-ua-full-version",
+  "sec-ch-ua-full-version-list",
+  "sec-ch-ua-mobile",
+  "sec-ch-ua-model",
+  "sec-ch-ua-platform",
+  "sec-ch-ua-platform-version",
+  "sec-fetch-dest",
+  "sec-fetch-mode",
+  "sec-fetch-site",
+  "user-agent",
+  "priority",
+]);
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  "application/dash+xml": "mpd",
+  "application/mpegurl": "m3u8",
+  "application/vnd.apple.mpegurl": "m3u8",
+  "application/x-mpegurl": "m3u8",
+  "audio/aac": "aac",
+  "audio/flac": "flac",
+  "audio/mp4": "m4a",
+  "audio/mpeg": "mp3",
+  "audio/ogg": "ogg",
+  "audio/wav": "wav",
+  "audio/webm": "webm",
+  "video/mp2t": "ts",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "video/x-flv": "flv",
+  "video/x-m4v": "m4v",
+  "video/x-ms-wmv": "wmv",
+};
 
 export function createResourceBridge(options: {
   sendDesktopRequest: DesktopRequestSender;
@@ -190,7 +236,7 @@ export function createResourceBridge(options: {
     if (!isCapturableUrl(details.url)) {
       return false;
     }
-    return details.type === "media" || isCatCatchMedia(fileExtension(filenameFromUrl(details.url)));
+    return details.type === "media" || isCatCatchMedia(fileExtension(filenameFromUrl(details.url)), mimeFromUrl(details.url));
   }
 
   function urlsLikelySamePage(left: string, right: string): boolean {
@@ -341,8 +387,8 @@ export function createResourceBridge(options: {
   }
 
   function filenameWithExtension(baseName: string, extension: string): string {
-    const trimmedBaseName = trimFilename(baseName || "") || "resource";
-    const normalizedExt = String(extension || "").trim().replace(/^\./, "").toLowerCase();
+    const trimmedBaseName = cleanFilename(baseName) || "resource";
+    const normalizedExt = extension.trim().replace(/^\./, "").toLowerCase();
     if (!normalizedExt) {
       return trimmedBaseName;
     }
@@ -352,14 +398,29 @@ export function createResourceBridge(options: {
     return `${trimmedBaseName}.${normalizedExt}`;
   }
 
+  function cleanFilename(value?: string): string {
+    return (value ?? "")
+      .trim()
+      .replace(/[<>:"/\\|?*\x00-\x1f]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/[. ]+$/g, "")
+      .trim()
+      .slice(0, 160);
+  }
+
+  function extensionFromMime(mime?: string): string {
+    const type = mime?.split(";")[0]?.trim().toLowerCase() ?? "";
+    return MIME_EXTENSIONS[type] ?? "";
+  }
+
   function resolveBridgeFilename(payload: BridgeResourcePayload): string {
-    const explicit = trimFilename(payload.filename || "");
+    const ext = payload.ext?.trim() || extensionFromMime(payload.mime);
+    const explicit = cleanFilename(payload.filename);
     if (explicit) {
-      return explicit;
+      return ext && !fileExtension(explicit) ? filenameWithExtension(explicit, ext) : explicit;
     }
 
-    const fromUrl = trimFilename(filenameFromUrl(payload.url) || "");
-    const ext = String(payload.ext || "").trim();
+    const fromUrl = cleanFilename(filenameFromUrl(payload.url));
     if (fromUrl) {
       return ext ? filenameWithExtension(fromUrl, ext) : fromUrl;
     }
@@ -367,17 +428,29 @@ export function createResourceBridge(options: {
     return ext ? filenameWithExtension("resource", ext) : "resource";
   }
 
+  function filenameForDesktop(resource: CapturedResource): string {
+    const urlFilename = filenameFromUrl(resource.url);
+    const current = cleanFilename(resource.filename || urlFilename);
+    const extension = fileExtension(current)
+      || fileExtension(urlFilename)
+      || extensionFromMime(resource.mime);
+    const title = cleanFilename(resource.pageTitle);
+    const baseName = title || current || "resource";
+    return filenameWithExtension(baseName, extension);
+  }
+
   async function resolveBridgeResourceTabId(sender: chrome.runtime.MessageSender, href?: string): Promise<number | null> {
-    const normalizedHref = String(href ?? "").trim();
+    if (sender.tab?.id) {
+      await setLastActiveTab(sender.tab.id);
+      return sender.tab.id;
+    }
+
+    const normalizedHref = href?.trim() ?? "";
     if (normalizedHref) {
       const matchedTabId = await resolveTabIdFromPageUrl(normalizedHref);
       if (matchedTabId != null) {
         return matchedTabId;
       }
-    }
-
-    if (sender.tab?.id) {
-      return sender.tab.id;
     }
 
     return resolveActiveTabId();
@@ -463,10 +536,11 @@ export function createResourceBridge(options: {
     scheduleBridgeStatePersist();
   }
 
-  function findResourceByUrl(rawUrl: string): CapturedResource | null {
+  function findResourceByUrl(rawUrl: string, tabId?: number): CapturedResource | null {
     const resourceIdSuffix = `:${normalizeUrl(rawUrl, true)}`;
     let matched: CapturedResource | null = null;
-    for (const resource of resourcesById.values()) {
+    const resources = tabId == null ? resourcesById.values() : (resourceCache.get(tabId)?.values() ?? []);
+    for (const resource of resources) {
       if (!resource.id.endsWith(resourceIdSuffix)) {
         continue;
       }
@@ -528,11 +602,6 @@ export function createResourceBridge(options: {
     return sortResources(result);
   }
 
-  function tabMediaResources(tabId: number): CapturedResource[] {
-    return sortResources(resourceCache.get(tabId)?.values() ?? [])
-      .filter((resource) => /^https?:/i.test(resource.url) && canUseOnlineMerge(resource));
-  }
-
   function canSendOneClickResource(resource: CapturedResource): boolean {
     const hint = describeResource(resource).parserHint;
     return hint === "m3u8" || hint === "mpd" || resource.size > 0 || resource.supportsRange;
@@ -549,7 +618,7 @@ export function createResourceBridge(options: {
   }
 
   function deriveMergeOutputTitle(resources: CapturedResource[]): string {
-    const pageTitle = String(resources[0]?.pageTitle || "").trim();
+    const pageTitle = (resources[0]?.pageTitle ?? "").trim();
     if (pageTitle) {
       return pageTitle;
     }
@@ -564,10 +633,7 @@ export function createResourceBridge(options: {
   }
 
   async function downloadResourceViaBrowser(resource: CapturedResource): Promise<void> {
-    const filename = resolveBridgeFilename({
-      url: resource.url,
-      filename: resource.filename,
-    });
+    const filename = filenameForDesktop(resource);
 
     return new Promise((resolve, reject) => {
       chrome.downloads.download(
@@ -644,7 +710,7 @@ export function createResourceBridge(options: {
       ...normalizeHeaders(payload.requestHeaders),
     };
     const filename = resolveBridgeFilename(payload);
-    const mime = String(payload.mime ?? "").toLowerCase();
+    const mime = payload.mime?.toLowerCase() || mimeFromUrl(payload.url);
 
     cacheResource({
       id: `${tabId}:${normalizeUrl(payload.url, true)}`,
@@ -664,6 +730,7 @@ export function createResourceBridge(options: {
 
   async function captureNetworkResource(details: chrome.webRequest.OnResponseStartedDetails) {
     const meta = responseMeta(details.responseHeaders);
+    meta.mime = mimeFromUrl(details.url) || meta.mime;
     const responseSupportsRange = meta.supportsRange || details.statusCode === 206;
     if (responseSupportsRange && isCapturableUrl(details.url)) {
       rememberHeaderSnapshot(details.url, {}, details.tabId > 0 ? details.tabId : lastActiveTabId, true);
@@ -727,7 +794,7 @@ export function createResourceBridge(options: {
       pageTitle: tab?.title ?? "",
       pageUrl: details.initiator && details.initiator !== "null" ? details.initiator : tab?.url ?? "",
       filename: trimFilename(filenameFromUrl(details.url)) || "resource",
-      mime: "",
+      mime: mimeFromUrl(details.url),
       size: 0,
       supportsRange: Boolean(headerSnapshot?.supportsRange),
       referer,
@@ -784,15 +851,16 @@ export function createResourceBridge(options: {
   }
 
   async function sendHttpResourceToDesktop(resource: CapturedResource): Promise<DesktopRequestResult> {
+    const filename = filenameForDesktop(resource);
     try {
       const result = await options.sendDesktopRequest<DesktopRequestResult>({
         type: "create_task",
         source: "resource",
-        title: resource.filename,
+        title: filename,
         payload: {
           url: resource.url,
           headers: resource.requestHeaders,
-          filename: resource.filename,
+          filename,
           size: resource.size,
           supportsRange: resource.supportsRange,
         },
@@ -845,12 +913,29 @@ export function createResourceBridge(options: {
       return { ok: false, message: "当前没有可操作的标签页" };
     }
 
-    const exactResource = payload.url ? findResourceByUrl(payload.url) : null;
-    if (exactResource?.tabId === tabId && canSendOneClickResource(exactResource)) {
+    const downloadableResources = sortResources(resourceCache.get(tabId)?.values() ?? [])
+      .filter((resource) => /^https?:/i.test(resource.url) && canSendOneClickResource(resource));
+    const candidates = downloadableResources.filter(canUseOnlineMerge);
+    const siteSelection = pickSiteMediaResources(downloadableResources, payload);
+    if (siteSelection?.resources.length === 1) {
+      return sendResource(siteSelection.resources[0].id);
+    }
+    if (siteSelection?.resources.length === 2) {
+      return mergeResources(siteSelection.resources.map((resource) => resource.id));
+    }
+    if (siteSelection?.exclusive) {
+      await openActionPopup();
+      return {
+        ok: false,
+        message: siteSelection.message || "请在资源嗅探页选择当前媒体资源",
+      };
+    }
+
+    const exactResource = payload.url ? findResourceByUrl(payload.url, tabId) : null;
+    if (exactResource && canSendOneClickResource(exactResource)) {
       return sendResource(exactResource.id);
     }
 
-    const candidates = tabMediaResources(tabId).filter(canSendOneClickResource);
     const streamResource = candidates.find((resource) => {
       const hint = describeResource(resource).parserHint;
       return hint === "m3u8" || hint === "mpd";
@@ -876,7 +961,7 @@ export function createResourceBridge(options: {
   }
 
   async function mergeResources(resourceIds: string[]): Promise<DesktopRequestResult> {
-    const ids = [...new Set(resourceIds.map((value) => String(value || "")).filter(Boolean))];
+    const ids = [...new Set(resourceIds.filter(Boolean))];
     const resources = ids
       .map((resourceId) => resourcesById.get(resourceId) ?? null)
       .filter((resource): resource is CapturedResource => resource != null);
@@ -905,7 +990,7 @@ export function createResourceBridge(options: {
         payload: {
           resources: orderedResources.map((resource) => ({
             url: resource.url,
-            filename: resource.filename,
+            filename: filenameForDesktop(resource),
             mime: resource.mime,
             size: resource.size,
             headers: resource.requestHeaders,

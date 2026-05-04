@@ -353,6 +353,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         url: String(message.url ?? ""),
         href: String(message.href ?? ""),
         filename: String(message.filename ?? ""),
+        poster: String(message.poster ?? ""),
+        resourceUrls: Array.isArray(message.resourceUrls)
+          ? message.resourceUrls.map((url: unknown) => String(url ?? "")).filter(Boolean)
+          : [],
       });
       if (result.ok) {
         await openActionPopup();

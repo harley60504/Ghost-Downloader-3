@@ -99,6 +99,14 @@
         return selected;
     }
 
+    function recentMediaResourceUrls() {
+        return performance.getEntriesByType("resource")
+            .filter((entry) => /video|audio|mpegurl|mp4|m4s|mpd|m3u8|douyinvod|twimg/i.test(`${entry.name} ${entry.initiatorType}`))
+            .sort((left, right) => right.startTime - left.startTime)
+            .slice(0, 20)
+            .map((entry) => entry.name);
+    }
+
     function updatePosition() {
         updateQueued = false;
         if (!enabled) {
@@ -179,6 +187,8 @@
                 url: media.currentSrc || media.src || "",
                 href: location.href,
                 filename: document.title,
+                poster: media.poster || "",
+                resourceUrls: recentMediaResourceUrls(),
             });
             setStatus(result?.ok ? "已发送" : result?.message || "发送失败", !result?.ok);
         } catch (error) {
