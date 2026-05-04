@@ -262,7 +262,7 @@ class Config(QConfig):
 
 YEAR = 2026
 AUTHOR = "XiaoYouChR"
-VERSION = "3.8.2"
+VERSION = "3.8.3"
 LATEST_EXTENSION_VERSION = "1.3.0"
 AUTHOR_URL = "https://space.bilibili.com/437313511"
 FEEDBACK_URL = "https://github.com/XiaoYouChR/Ghost-Downloader-3/issues"
