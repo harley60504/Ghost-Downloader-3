@@ -16,6 +16,7 @@ from app.supports.config import DEFAULT_HEADERS, cfg
 from app.supports.sysio import ftruncate, pwrite
 from app.supports.utils import getProxies, splitRequestHeadersAndCookies
 
+
 def _parsePositiveContentLength(headers: dict[str, str]) -> int:
     value = headers.get("content-length", "").strip()
     if not value:
@@ -44,6 +45,7 @@ def _parseContentRangeTotal(headers: dict[str, str]) -> int:
         return SpecialFileSize.UNKNOWN
 
     return size if size > 0 else SpecialFileSize.UNKNOWN
+
 
 @dataclass
 class HttpTaskStage(TaskStage):
@@ -111,6 +113,10 @@ class HttpTask(Task):
 
     def applyPayloadToTask(self, payload: dict[str, Any]):
         super().applyPayloadToTask(payload)
+        # TODO 更新 Headers 有时需要根据单独任务进行更新
+        # headers = payload.get("headers")
+        # if isinstance(headers, dict):
+        #     self.headers = headers
 
         proxies = payload.get("proxies")
         if isinstance(proxies, dict):
@@ -125,6 +131,8 @@ class HttpTask(Task):
             if not isinstance(stage, HttpTaskStage):
                 continue
 
+            # if isinstance(headers, dict):
+            #     stage.headers = headers
             if isinstance(proxies, dict):
                 stage.proxies = proxies
             if isinstance(blockNum, int):
@@ -175,14 +183,15 @@ class HttpWorker(Worker):
         if self.stage.fileSize <= 0:
             return
 
-        slowestSubworker = max(self.subworkers, key=lambda subworker: subworker.end - subworker.progress)
-        remainingBytes = slowestSubworker.end - slowestSubworker.progress
+        slowestSubworker = max(self.subworkers, key=lambda subworker: subworker.end - subworker.progress + 1)
+        remainingBytes = slowestSubworker.end - slowestSubworker.progress + 1
         if remainingBytes < cfg.maxReassignSize.value * 1048576:
             return
         base = remainingBytes // 2
         remainder = remainingBytes % 2
-        slowestSubworker.end = slowestSubworker.progress + base + remainder
-        newSubworker = HttpSubworker(slowestSubworker.end + 1, slowestSubworker.end + 1, slowestSubworker.end + base)
+        oldEnd = slowestSubworker.end
+        slowestSubworker.end = slowestSubworker.progress + base + remainder - 1
+        newSubworker = HttpSubworker(slowestSubworker.end + 1, slowestSubworker.end + 1, oldEnd)
         self.subworkers.insert(self.subworkers.index(slowestSubworker) + 1, newSubworker)
         self.taskGroup.create_task(self.handleSubworker(newSubworker))
 
@@ -217,10 +226,10 @@ class HttpWorker(Worker):
                                 continue
 
                             await cfg.checkSpeedLimitation()
-                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += chunkLen
-                            cfg.globalSpeed += chunkLen
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
                     finally:
                         await res.close()
 
@@ -232,16 +241,17 @@ class HttpWorker(Worker):
                         subworker,
                     )
                     await asyncio.sleep(5)
-
         elif subworker.end == SpecialFileSize.NOT_SUPPORTED:  # 不支持断点续传
             while True:
                 try:
                     ftruncate(self.fileHandle, 0)
                     subworker.progress = 0
+                    requestHeaders = self.requestHeaders.copy()
+                    requestHeaders.pop("range", None)
 
                     res = await self.client.get(
                         self.stage.url,
-                        headers=self.requestHeaders,
+                        headers=requestHeaders,
                         cookies=self.requestCookies,
                         proxies=self.stage.proxies,
                         verify=cfg.SSLVerify.value,
@@ -250,20 +260,20 @@ class HttpWorker(Worker):
                     )
                     try:
                         res.raise_for_status()
-                        if res.status_code not in {200, 206}:
+                        if res.status_code != 200:
                             raise Exception(f"服务器返回了异常状态码：{res.status_code}")
 
                         self._updateFileSizeFromResponse(res)
 
-                        async for chunk in await res.iter_raw(chunk_size=65536):
+                        async for chunk in await res.iter_content(chunk_size=65536):
                             if not chunk:
                                 continue
 
                             await cfg.checkSpeedLimitation()
-                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, subworker.progress)
-                            subworker.progress += chunkLen
-                            cfg.globalSpeed += chunkLen
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
                     finally:
                         await res.close()
 
@@ -275,9 +285,8 @@ class HttpWorker(Worker):
                         self.stage.resolvePath,
                     )
                     await asyncio.sleep(5)
-
         else:  # 正常下载
-            while subworker.progress < subworker.end:
+            while subworker.progress <= subworker.end:
                 try:
                     res = await self.client.get(
                         self.stage.url,
@@ -298,20 +307,24 @@ class HttpWorker(Worker):
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
-
+                            remainingBytes = subworker.end - subworker.progress + 1
+                            if len(chunk) > remainingBytes:
+                                chunk = chunk[:remainingBytes]
                             await cfg.checkSpeedLimitation()
                             offset = subworker.progress
-                            chunkLen = len(chunk)
                             pwrite(self.fileHandle, chunk, offset)
-                            subworker.progress += chunkLen
-                            cfg.globalSpeed += chunkLen
-                            if subworker.progress >= subworker.end:
+                            chunkSize = len(chunk)
+                            subworker.progress += chunkSize
+                            cfg.globalSpeed += chunkSize
+                            if subworker.progress > subworker.end:
                                 break
+                    except Exception as e:
+                        raise e
                     finally:
                         await res.close()
 
                     if subworker.progress > subworker.end:
-                        subworker.progress = subworker.end
+                        subworker.progress = subworker.end + 1
 
                 except Exception as e:
                     logger.opt(exception=e).error(
@@ -409,7 +422,7 @@ class HttpWorker(Worker):
             try:
                 with open(recordFile, "rb") as f:
                     while True:
-                        data = f.read(24)
+                        data = f.read(24)  # 每个 worker 有 3 个 64 位的无符号整数，共 24 字节
                         if not data:
                             break
 
@@ -433,14 +446,14 @@ class HttpWorker(Worker):
             self.subworkers.append(HttpSubworker(0, 0, SpecialFileSize.UNKNOWN))
             return
 
-        step = self.stage.fileSize // self.stage.blockNum
+        step = self.stage.fileSize // self.stage.blockNum  # 每块大小
         start = 0
-        for _ in range(self.stage.blockNum - 1):
+        for i in range(self.stage.blockNum - 1):
             end = start + step - 1
             self.subworkers.append(HttpSubworker(start, start, end))
             start = end + 1
 
-        self.subworkers.append(HttpSubworker(start, start, self.stage.fileSize - 1))
+        self.subworkers.append(HttpSubworker(start, start, self.stage.fileSize - 1))  # Http 请求是以 0 开头的
 
     def _cleanupRecordFile(self):
         target = Path(self.stage.resolvePath + ".ghd")
@@ -451,6 +464,7 @@ class HttpWorker(Worker):
             logger.opt(exception=e).error("failed to cleanup temporary file {}", target)
 
     async def run(self):
+        # prepare async components
         self.taskGroup = TaskGroup()
         self.subworkers: list[HttpSubworker] = []
         self.client = niquests.AsyncSession(happy_eyeballs=True, pool_maxsize=256)

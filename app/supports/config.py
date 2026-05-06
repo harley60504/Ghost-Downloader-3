@@ -187,19 +187,15 @@ class Config(QConfig):
     enableBrowserExtension = ConfigItem(
         "Browser", "EnableBrowserExtension", False, BoolValidator()
     )
-
     browserExtensionPairToken = ConfigItem(
         "Browser", "BrowserExtensionPairToken", ""
     )
-
     enableRaiseWindowWhenReceiveMsg = ConfigItem(
         "Browser", "EnableRaiseWindowWhenReceiveMsg", False, BoolValidator()
     )
-
     browserExtensionLanMode = ConfigItem(
         "Browser", "BrowserExtensionLanMode", False, BoolValidator()
     )
-
     browserExtensionPort = RangeConfigItem(
         "Browser", "BrowserExtensionPort", 14370, RangeValidator(1, 65535)
     )
@@ -272,13 +268,13 @@ class Config(QConfig):
 
 YEAR = 2026
 AUTHOR = "XiaoYouChR"
-VERSION = "3.8.2"
-LATEST_EXTENSION_VERSION = "1.2.1"
+VERSION = "3.8.3"
+LATEST_EXTENSION_VERSION = "1.3.0"
 AUTHOR_URL = "https://space.bilibili.com/437313511"
 FEEDBACK_URL = "https://github.com/XiaoYouChR/Ghost-Downloader-3/issues"
 FIREFOX_ADDONS_URL = "https://addons.mozilla.org/zh-CN/firefox/addon/ghost-downloader/"
 EDGE_ADDONS_URL = "https://microsoftedge.microsoft.com/addons/detail/ghost-downloader-browser/odaohmfjjbompdkmfbambadnagplcmce"
-CHROME_ADDONS_URL = "https://chromewebstore.google.com/detail/ghost-downloader-browser/pinckpkeeajogfgajbicpnengimiblch"
+# CHROME_ADDONS_URL = "https://chromewebstore.google.com/detail/ghost-downloader-browser/pinckpkeeajogfgajbicpnengimiblch"
 GD3_COPY_MIME_TYPE = "application/x-gd3-copy"
 # RELEASE_URL = "https://github.com/XiaoYouChR/Ghost-Downloader-3/releases/latest"
 # BASE_EFFICIENCY_THRESHOLD = 0.8  # 判断阈值
