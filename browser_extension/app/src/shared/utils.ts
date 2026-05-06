@@ -1,0 +1,507 @@
+import type {
+  CapturedResource,
+  DesktopConnectionState,
+  GenericTaskSummary,
+  ResourceFilter,
+} from "./types";
+import {
+  CAT_CATCH_AUDIO_EXTENSIONS,
+  CAT_CATCH_VIDEO_EXTENSIONS,
+  isCatCatchM3u8,
+  isCatCatchMedia,
+  isCatCatchMpd,
+} from "./cat-catch";
+
+const ACTIVE_STATUSES = new Set(["running", "waiting", "paused", "failed"]);
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif", "heic"]);
+const ARCHIVE_EXTENSIONS = new Set(["zip", "7z", "rar", "tar", "gz", "bz2", "xz"]);
+const PDF_EXTENSIONS = new Set(["pdf"]);
+const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "csv", "tsv", "ods", "numbers"]);
+const DOCUMENT_EXTENSIONS = new Set([
+  "txt",
+  "md",
+  "rtf",
+  "doc",
+  "docx",
+  "ppt",
+  "pptx",
+  "pages",
+  "key",
+  "epub",
+]);
+
+export type AccentTone = "neutral" | "success" | "info" | "warning" | "danger";
+export type VisualKind =
+  | "download"
+  | "video"
+  | "audio"
+  | "archive"
+  | "document"
+  | "pdf"
+  | "spreadsheet"
+  | "image"
+  | "stream";
+type ResourceParserHint = "m3u8" | "mpd" | "media" | "download" | "other";
+type ResourceDeliveryTarget = "gd3" | "browser_download";
+type ResourceMediaKind = "video" | "audio" | "";
+
+interface ResourcePresentation {
+  extension: string;
+  parserHint: ResourceParserHint;
+  deliveryTarget: ResourceDeliveryTarget;
+  category: ResourceFilter;
+  primaryBadge: string;
+  statusText: string;
+  actionLabel: string;
+  needsDesktop: boolean;
+  tags: string[];
+  visual: {
+    kind: VisualKind;
+  };
+}
+
+export function sortTasks(tasks: GenericTaskSummary[]): GenericTaskSummary[] {
+  return [...tasks].sort((left, right) => {
+    const leftActive = ACTIVE_STATUSES.has(left.status);
+    const rightActive = ACTIVE_STATUSES.has(right.status);
+    if (leftActive !== rightActive) {
+      return leftActive ? -1 : 1;
+    }
+    return right.createdAt - left.createdAt;
+  });
+}
+
+function sortResources(resources: CapturedResource[]): CapturedResource[] {
+  return [...resources].sort((left, right) => right.capturedAt - left.capturedAt);
+}
+
+export function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(size >= 100 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+export function formatTaskStatus(status: string): string {
+  switch (status) {
+    case "running":
+      return "下载中";
+    case "waiting":
+      return "等待中";
+    case "paused":
+      return "已暂停";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    default:
+      return status;
+  }
+}
+
+export function formatTaskMetric(task: GenericTaskSummary): string {
+  if (task.speed > 0) {
+    return `${formatBytes(task.speed)}/s`;
+  }
+  return `${formatBytes(task.receivedBytes)} / ${task.fileSize > 0 ? formatBytes(task.fileSize) : "--"}`;
+}
+
+export function formatProgress(task: GenericTaskSummary): string {
+  if (task.fileSize > 0) {
+    return `${formatBytes(task.receivedBytes)} / ${formatBytes(task.fileSize)}`;
+  }
+  return `${formatBytes(task.receivedBytes)} / --`;
+}
+
+export function formatShortTime(value: number): string {
+  if (!Number.isFinite(value) || value < 0) {
+    return "00:00";
+  }
+
+  const totalSeconds = Math.floor(value);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const hours = Math.floor(totalSeconds / 3600);
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function formatCapturedAt(timestamp: number): string {
+  const date = new Date(timestamp);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+export function shorten(value: string, max = 44): string {
+  if (!value || value.length <= max) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, max - 3))}...`;
+}
+
+export function connectionTone(state: DesktopConnectionState): AccentTone {
+  switch (state) {
+    case "connected":
+      return "success";
+    case "connecting":
+    case "authenticating":
+      return "info";
+    case "missing_token":
+      return "warning";
+    case "unauthorized":
+    case "disconnected":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+export function connectionLabel(state: DesktopConnectionState, fallback: string): string {
+  if (fallback?.trim()) {
+    return fallback;
+  }
+  switch (state) {
+    case "connected":
+      return "已连接";
+    case "connecting":
+      return "正在连接";
+    case "authenticating":
+      return "正在校验";
+    case "missing_token":
+      return "待配对";
+    case "unauthorized":
+      return "令牌无效";
+    default:
+      return "未连接";
+  }
+}
+
+export function domainFromUrl(value: string): string {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "";
+  }
+}
+
+export function mimeFromUrl(value: string): string {
+  try {
+    const mime = new URL(value).searchParams.get("mime_type")?.replace(/_/g, "/").toLowerCase() ?? "";
+    return isCatCatchMedia("", mime) ? mime : "";
+  } catch {
+    return "";
+  }
+}
+
+export function filenameFromUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return decodeURIComponent(url.pathname.split("/").pop() || "");
+  } catch {
+    return "";
+  }
+}
+
+export function fileExtension(name: string): string {
+  const trimmed = String(name || "").trim();
+  const dotIndex = trimmed.lastIndexOf(".");
+  if (dotIndex < 0) {
+    return "";
+  }
+  return trimmed.slice(dotIndex + 1).toLowerCase();
+}
+
+function inferParserHint(rawUrl: string, mime: string, extension: string): ResourceParserHint {
+  const loweredUrl = String(rawUrl || "").toLowerCase();
+  const loweredMime = String(mime || "").toLowerCase();
+  const loweredExt = String(extension || "").toLowerCase();
+
+  if (isCatCatchM3u8(loweredExt, loweredMime) || loweredUrl.includes(".m3u8")) {
+    return "m3u8";
+  }
+  if (isCatCatchMpd(loweredExt, loweredMime) || loweredUrl.includes(".mpd")) {
+    return "mpd";
+  }
+  if (isCatCatchMedia(loweredExt, loweredMime)) {
+    return "media";
+  }
+  if (["zip", "7z", "rar", "pdf", "exe", "msi", "dmg", "pkg", "apk", "iso"].includes(loweredExt)) {
+    return "download";
+  }
+  return "other";
+}
+
+function inferDashTrackKind(name: string, rawUrl: string): ResourceMediaKind {
+  const filename = String(name || filenameFromUrl(rawUrl) || "");
+  const lowered = `${filename} ${rawUrl}`.toLowerCase();
+
+  if (/(^|[-_.\\/])(video)([-_.\\/]|$)/i.test(lowered)) {
+    return "video";
+  }
+  if (/(^|[-_.\\/])(audio)([-_.\\/]|$)/i.test(lowered)) {
+    return "audio";
+  }
+
+  const match = lowered.match(/-(\d{5,6})(?=\.m4s(?:$|[?#]))/i)
+    ?? lowered.match(/\/(\d{5,6})(?=\.m4s(?:$|[?#]))/i);
+  const trackId = Number(match?.[1] ?? 0);
+  if (!Number.isFinite(trackId) || trackId <= 0) {
+    return "";
+  }
+  if (trackId >= 100000) {
+    return "video";
+  }
+  if (trackId >= 30000 && trackId < 40000) {
+    return "audio";
+  }
+  return "";
+}
+
+function inferResourceMediaKind(resource: CapturedResource, extension: string): ResourceMediaKind {
+  const mime = String(resource.mime || "").toLowerCase();
+  if (extension === "m4s") {
+    const dashKind = inferDashTrackKind(resource.filename, resource.url);
+    if (dashKind) {
+      return dashKind;
+    }
+  }
+
+  if (mime.startsWith("video/")) {
+    return "video";
+  }
+  if (mime.startsWith("audio/")) {
+    return "audio";
+  }
+
+  if (CAT_CATCH_VIDEO_EXTENSIONS.has(extension) && !CAT_CATCH_AUDIO_EXTENSIONS.has(extension)) {
+    return "video";
+  }
+  if (CAT_CATCH_AUDIO_EXTENSIONS.has(extension) && !CAT_CATCH_VIDEO_EXTENSIONS.has(extension)) {
+    return "audio";
+  }
+  return "";
+}
+
+function inferDeliveryTarget(url: string): ResourceDeliveryTarget {
+  return String(url || "").startsWith("blob:") ? "browser_download" : "gd3";
+}
+
+function inferVisualKind({
+  extension,
+  mime,
+  parserHint,
+}: {
+  extension: string;
+  mime?: string;
+  parserHint?: ResourceParserHint;
+}): VisualKind {
+  const loweredMime = String(mime || "").toLowerCase();
+  const loweredExtension = String(extension || "").toLowerCase();
+
+  if (parserHint === "m3u8" || parserHint === "mpd") {
+    return "stream";
+  }
+  if (loweredMime.startsWith("video/") || CAT_CATCH_VIDEO_EXTENSIONS.has(loweredExtension)) {
+    return "video";
+  }
+  if (loweredMime.startsWith("audio/") || CAT_CATCH_AUDIO_EXTENSIONS.has(loweredExtension)) {
+    return "audio";
+  }
+  if (loweredMime.startsWith("image/") || IMAGE_EXTENSIONS.has(loweredExtension)) {
+    return "image";
+  }
+  if (ARCHIVE_EXTENSIONS.has(loweredExtension)) {
+    return "archive";
+  }
+  if (PDF_EXTENSIONS.has(loweredExtension) || loweredMime === "application/pdf") {
+    return "pdf";
+  }
+  if (
+    SPREADSHEET_EXTENSIONS.has(loweredExtension)
+    || loweredMime.includes("spreadsheet")
+    || loweredMime.includes("excel")
+    || loweredMime.includes("csv")
+  ) {
+    return "spreadsheet";
+  }
+  if (DOCUMENT_EXTENSIONS.has(loweredExtension) || loweredMime.startsWith("text/")) {
+    return "document";
+  }
+  return "download";
+}
+
+function resourceDerivedState(resource: CapturedResource): {
+  extension: string;
+  parserHint: ResourceParserHint;
+  deliveryTarget: ResourceDeliveryTarget;
+  mediaKind: ResourceMediaKind;
+} {
+  const extension = fileExtension(resource.filename || filenameFromUrl(resource.url));
+  return {
+    extension,
+    parserHint: inferParserHint(resource.url, resource.mime, extension),
+    deliveryTarget: inferDeliveryTarget(resource.url),
+    mediaKind: inferResourceMediaKind(resource, extension),
+  };
+}
+
+function resourcePrimaryBadge(resource: CapturedResource, derived = resourceDerivedState(resource)): string {
+  if (derived.parserHint === "m3u8") {
+    return "M3U8";
+  }
+  if (derived.parserHint === "mpd") {
+    return "MPD";
+  }
+
+  if (derived.extension) {
+    return derived.extension.slice(0, 6).toUpperCase();
+  }
+  if (resource.mime.startsWith("audio/")) {
+    return "音频";
+  }
+  if (resource.mime.startsWith("video/")) {
+    return "视频";
+  }
+  return "资源";
+}
+
+export function describeResource(resource: CapturedResource): ResourcePresentation {
+  const derived = resourceDerivedState(resource);
+  const mime = String(resource.mime || "").toLowerCase();
+
+  let category: ResourceFilter = "all";
+  if (derived.parserHint === "m3u8" || derived.parserHint === "mpd") {
+    category = "streaming";
+  } else if (derived.mediaKind === "audio") {
+    category = "audio";
+  } else if (derived.mediaKind === "video") {
+    category = "video";
+  }
+
+  const primaryBadge = resourcePrimaryBadge(resource, derived);
+  const needsDesktop = derived.deliveryTarget === "gd3";
+  const statusText = resource.sentToDesktopAt
+    ? needsDesktop
+      ? "已发送到 Ghost Downloader"
+      : "已交给浏览器下载"
+    : needsDesktop
+      ? "发送到 Ghost Downloader"
+      : "浏览器下载";
+
+  const tags = [primaryBadge];
+  tags.push(derived.deliveryTarget === "browser_download" ? "浏览器下载" : "GD3");
+  if (!resource.sentToDesktopAt && (derived.parserHint === "m3u8" || derived.parserHint === "mpd")) {
+    tags.push("流媒体");
+  }
+  if (
+    !resource.sentToDesktopAt
+    && resource.requestHeaders
+    && Object.keys(resource.requestHeaders).length > 0
+    && (derived.parserHint === "m3u8" || derived.parserHint === "mpd")
+  ) {
+    tags.push("需请求头");
+  }
+  if (!resource.sentToDesktopAt && (derived.parserHint === "download" || derived.parserHint === "media")) {
+    tags.push("可直接下载");
+  }
+  const visual: ResourcePresentation["visual"] = {
+    kind: inferVisualKind({
+      extension: derived.extension,
+      mime,
+      parserHint: derived.parserHint,
+    }),
+  };
+
+  return {
+    extension: derived.extension,
+    parserHint: derived.parserHint,
+    deliveryTarget: derived.deliveryTarget,
+    category,
+    primaryBadge,
+    statusText,
+    actionLabel: needsDesktop ? "发送到 Ghost Downloader" : "浏览器下载",
+    needsDesktop,
+    tags,
+    visual,
+  };
+}
+
+export function canUseOnlineMerge(resource: CapturedResource): boolean {
+  const derived = resourceDerivedState(resource);
+  if (derived.deliveryTarget !== "gd3") {
+    return false;
+  }
+
+  const mime = String(resource.mime || "").toLowerCase();
+  return (
+    derived.parserHint === "m3u8"
+    || derived.parserHint === "mpd"
+    || isCatCatchMedia(derived.extension, mime)
+    || mime.endsWith("octet-stream")
+  );
+}
+
+export function canUseOnlineMergeSelection(resources: CapturedResource[]): boolean {
+  return resources.length === 2 && resources.every(canUseOnlineMerge);
+}
+
+export function sortResourcesForOnlineMerge(resources: CapturedResource[]): CapturedResource[] {
+  return [...resources].sort((left, right) => {
+    const leftCategory = describeResource(left).category;
+    const rightCategory = describeResource(right).category;
+    if (leftCategory === rightCategory) {
+      return 0;
+    }
+    if (leftCategory === "video") {
+      return -1;
+    }
+    if (rightCategory === "video") {
+      return 1;
+    }
+    return 0;
+  });
+}
+
+export function filterResources(resources: CapturedResource[], filter: ResourceFilter): CapturedResource[] {
+  const sorted = sortResources(resources);
+  if (filter === "all") {
+    return sorted;
+  }
+  return sorted.filter((resource) => describeResource(resource).category === filter);
+}
+
+export function taskActionLabel(task: GenericTaskSummary): string {
+  if (task.status === "running") {
+    return "暂停";
+  }
+  if (task.status === "paused" || task.status === "waiting" || task.status === "failed") {
+    return "继续";
+  }
+  return "";
+}
+
+export function taskVisual(task: GenericTaskSummary): { kind: VisualKind } {
+  const extension = fileExtension(task.fileExt || task.title);
+  return {
+    kind: inferVisualKind({
+      extension,
+      parserHint:
+        task.packName.includes("m3u8") || extension === "m3u8" || extension === "mpd"
+          ? "m3u8"
+          : undefined,
+    }),
+  };
+}

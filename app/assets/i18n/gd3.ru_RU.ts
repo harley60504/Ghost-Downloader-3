@@ -12,52 +12,57 @@
 <context>
     <name>AddTaskDialog</name>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="161"/>
+        <location filename="../../view/components/add_task_dialog.py" line="118"/>
         <source>添加任务</source>
         <translation>Добавить задачу</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="168"/>
+        <location filename="../../view/components/add_task_dialog.py" line="123"/>
         <source>选择下载路径</source>
         <translation>Выбрать путь загрузки</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="173"/>
+        <location filename="../../view/components/add_task_dialog.py" line="124"/>
         <source>预分配线程数</source>
         <translation>Предвыделенные потоки</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="197"/>
+        <location filename="../../view/components/add_task_dialog.py" line="143"/>
         <source>添加多个下载链接时，请确保每行只有一个下载链接</source>
         <translation>При добавлении нескольких ссылок убедитесь, что в каждой строке одна ссылка</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="285"/>
+        <location filename="../../view/components/add_task_dialog.py" line="318"/>
         <source>{0}
 {1}</source>
         <translation>{0}
 {1}</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="288"/>
+        <location filename="../../view/components/add_task_dialog.py" line="321"/>
         <source>链接解析失败</source>
         <translation>Ошибка разбора ссылки</translation>
+    </message>
+    <message>
+        <location filename="../../view/components/add_task_dialog.py" line="341"/>
+        <source>解析失败</source>
+        <translation type="unfinished">Ошибка разбора</translation>
+    </message>
+    <message>
+        <location filename="../../view/components/add_task_dialog.py" line="360"/>
+        <source>解析结果处理失败</source>
+        <translation type="unfinished">Не удалось обработать результат разбора</translation>
     </message>
 </context>
 <context>
     <name>AddTaskParseSession</name>
     <message>
-        <location filename="../../view/components/add_task_dialog_session.py" line="102"/>
-        <location filename="../../view/components/add_task_dialog_session.py" line="113"/>
-        <location filename="../../view/components/add_task_dialog_session.py" line="192"/>
-        <location filename="../../view/components/add_task_dialog_session.py" line="275"/>
         <source>解析结果处理失败</source>
-        <translation>Не удалось обработать результат разбора</translation>
+        <translation type="vanished">Не удалось обработать результат разбора</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog_session.py" line="264"/>
         <source>解析失败</source>
-        <translation>Ошибка разбора</translation>
+        <translation type="vanished">Ошибка разбора</translation>
     </message>
 </context>
 <context>
@@ -318,17 +323,17 @@
 <context>
     <name>BitTorrentResultCard</name>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="74"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="358"/>
         <source>选择文件</source>
         <translation>Выбрать файлы</translation>
     </message>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="105"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="389"/>
         <source>{0} · {1} 个 Tracker</source>
         <translation>{0} · трекеров: {1}</translation>
     </message>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="110"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="394"/>
         <source>{0}/{1} 个文件 · {2}</source>
         <translation>Файлов: {0}/{1} · {2}</translation>
     </message>
@@ -336,17 +341,17 @@
 <context>
     <name>BitTorrentTaskCard</name>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="144"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="428"/>
         <source>分享率 {0:.2f}%</source>
         <translation>Ratio {0:.2f}%</translation>
     </message>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="146"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="430"/>
         <source>做种 {0}</source>
         <translation>Раздача {0}</translation>
     </message>
     <message>
-        <location filename="../../../features/bittorrent_pack/cards.py" line="149"/>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="433"/>
         <source>Peers {0} / Seeds {1}</source>
         <translation>Пиры {0} / Сиды {1}</translation>
     </message>
@@ -354,100 +359,100 @@
 <context>
     <name>BrowserService</name>
     <message>
-        <location filename="../../services/browser_service.py" line="382"/>
+        <location filename="../../services/browser_service.py" line="476"/>
         <source>无法解析该链接</source>
         <translation>Не удалось распознать ссылку</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="402"/>
+        <location filename="../../services/browser_service.py" line="496"/>
         <source>创建任务失败</source>
         <translation>Не удалось создать задачу</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="415"/>
-        <location filename="../../services/browser_service.py" line="587"/>
+        <location filename="../../services/browser_service.py" line="509"/>
+        <location filename="../../services/browser_service.py" line="681"/>
         <source>缺少 requestId</source>
         <translation>Отсутствует requestId</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="423"/>
+        <location filename="../../services/browser_service.py" line="517"/>
         <source>无效的任务负载</source>
         <translation type="unfinished">无效的任务负载</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="441"/>
+        <location filename="../../services/browser_service.py" line="535"/>
         <source>在线合并暂时只支持 2 个资源</source>
         <translation type="unfinished">在线合并暂时只支持 2 个资源</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="464"/>
+        <location filename="../../services/browser_service.py" line="558"/>
         <source>缺少下载链接</source>
         <translation type="unfinished">缺少下载链接</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="598"/>
+        <location filename="../../services/browser_service.py" line="692"/>
         <source>不支持的任务操作</source>
         <translation type="unfinished">不支持的任务操作</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="609"/>
+        <location filename="../../services/browser_service.py" line="703"/>
         <source>任务不存在</source>
         <translation type="unfinished">任务不存在</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="622"/>
+        <location filename="../../services/browser_service.py" line="716"/>
         <source>当前任务不支持暂停</source>
         <translation type="unfinished">当前任务不支持暂停</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="632"/>
+        <location filename="../../services/browser_service.py" line="726"/>
         <source>任务已完成</source>
         <translation type="unfinished">任务已完成</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="676"/>
+        <location filename="../../services/browser_service.py" line="770"/>
         <source>文件尚未生成</source>
         <translation type="unfinished">文件尚未生成</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="691"/>
+        <location filename="../../services/browser_service.py" line="785"/>
         <source>目录不存在</source>
         <translation type="unfinished">目录不存在</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="718"/>
+        <location filename="../../services/browser_service.py" line="812"/>
         <source>无效的消息格式</source>
         <translation type="unfinished">无效的消息格式</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="722"/>
+        <location filename="../../services/browser_service.py" line="816"/>
         <source>无效的消息结构</source>
         <translation type="unfinished">无效的消息结构</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="729"/>
-        <location filename="../../services/browser_service.py" line="793"/>
+        <location filename="../../services/browser_service.py" line="823"/>
+        <location filename="../../services/browser_service.py" line="887"/>
         <source>未知的消息类型</source>
         <translation type="unfinished">未知的消息类型</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="233"/>
-        <location filename="../../services/browser_service.py" line="741"/>
+        <location filename="../../services/browser_service.py" line="324"/>
+        <location filename="../../services/browser_service.py" line="835"/>
         <source>协议版本不匹配</source>
         <translation type="unfinished">协议版本不匹配</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="211"/>
+        <location filename="../../services/browser_service.py" line="302"/>
         <source>未知</source>
         <translation>Неизвестно</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="212"/>
+        <location filename="../../services/browser_service.py" line="303"/>
         <source>浏览器扩展</source>
         <translation>Расширение браузера</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="215"/>
+        <location filename="../../services/browser_service.py" line="306"/>
         <source>浏览器扩展正在请求连接到 Ghost Downloader。
 
 来源: {0}
@@ -464,37 +469,37 @@
 仅在你刚刚点击扩展里的“自动配对”时允许。</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="223"/>
+        <location filename="../../services/browser_service.py" line="314"/>
         <source>浏览器扩展配对请求</source>
         <translation type="unfinished">浏览器扩展配对请求</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="224"/>
+        <location filename="../../services/browser_service.py" line="315"/>
         <source>允许配对</source>
         <translation type="unfinished">允许配对</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="225"/>
+        <location filename="../../services/browser_service.py" line="316"/>
         <source>拒绝</source>
         <translation type="unfinished">拒绝</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="235"/>
+        <location filename="../../services/browser_service.py" line="326"/>
         <source>已拒绝配对请求</source>
         <translation type="unfinished">已拒绝配对请求</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="237"/>
+        <location filename="../../services/browser_service.py" line="328"/>
         <source>配对成功</source>
         <translation type="unfinished">配对成功</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="752"/>
+        <location filename="../../services/browser_service.py" line="846"/>
         <source>配对令牌无效</source>
         <translation type="unfinished">配对令牌无效</translation>
     </message>
     <message>
-        <location filename="../../services/browser_service.py" line="775"/>
+        <location filename="../../services/browser_service.py" line="869"/>
         <source>请先完成握手认证</source>
         <translation type="unfinished">请先完成握手认证</translation>
     </message>
@@ -520,17 +525,17 @@
 <context>
     <name>DeleteTaskDialog</name>
     <message>
-        <location filename="../../view/components/dialogs.py" line="44"/>
+        <location filename="../../view/components/dialogs.py" line="16"/>
         <source>删除任务</source>
         <translation>Удалить задачу</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="46"/>
+        <location filename="../../view/components/dialogs.py" line="18"/>
         <source>确定要删除此任务吗？</source>
         <translation>Вы уверены, что хотите удалить эту задачу?</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="47"/>
+        <location filename="../../view/components/dialogs.py" line="19"/>
         <source>删除文件</source>
         <translation>Удалить файл</translation>
     </message>
@@ -667,52 +672,52 @@
 <context>
     <name>FileHashDialog</name>
     <message>
-        <location filename="../../view/components/dialogs.py" line="204"/>
+        <location filename="../../view/components/dialogs.py" line="176"/>
         <source>校验下载文件</source>
         <translation>Проверить загруженный файл</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="205"/>
+        <location filename="../../view/components/dialogs.py" line="177"/>
         <source>请选择要使用的校验算法</source>
         <translation>Выберите алгоритм проверки</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="207"/>
+        <location filename="../../view/components/dialogs.py" line="179"/>
         <source>等待开始</source>
         <translation>Ожидание начала</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="217"/>
+        <location filename="../../view/components/dialogs.py" line="189"/>
         <source>开始校验</source>
         <translation>Начать проверку</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="218"/>
+        <location filename="../../view/components/dialogs.py" line="190"/>
         <source>取消</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="260"/>
+        <location filename="../../view/components/dialogs.py" line="232"/>
         <source>正在校验 {0}</source>
         <translation>Выполняется проверка {0}</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="279"/>
+        <location filename="../../view/components/dialogs.py" line="251"/>
         <source>正在校验 {0}%</source>
         <translation>Выполняется проверка: {0}%</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="284"/>
+        <location filename="../../view/components/dialogs.py" line="256"/>
         <source>校验完成</source>
         <translation>Проверка завершена</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="291"/>
+        <location filename="../../view/components/dialogs.py" line="263"/>
         <source>校验失败：{0}</source>
         <translation>Ошибка проверки: {0}</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="297"/>
+        <location filename="../../view/components/dialogs.py" line="269"/>
         <source>重新校验</source>
         <translation>Проверить снова</translation>
     </message>
@@ -720,100 +725,159 @@
 <context>
     <name>FileSelectDialog</name>
     <message>
-        <location filename="../../view/components/dialogs.py" line="360"/>
         <source>选择下载文件</source>
-        <translation>Выбор файлов</translation>
+        <translation type="vanished">Выбор файлов</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="366"/>
         <source>全选</source>
-        <translation>Выбрать все</translation>
+        <translation type="vanished">Выбрать все</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="367"/>
         <source>全不选</source>
-        <translation>Снять всё</translation>
+        <translation type="vanished">Снять всё</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="368"/>
         <source>反选</source>
-        <translation>Инвертировать выбор</translation>
+        <translation type="vanished">Инвертировать выбор</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="369"/>
         <source>按类型选择</source>
-        <translation>Выбрать по типу</translation>
+        <translation type="vanished">Выбрать по типу</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="372"/>
         <source>应用</source>
-        <translation>Приложение</translation>
+        <translation type="vanished">Приложение</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="373"/>
         <source>取消</source>
-        <translation>Отмена</translation>
+        <translation type="vanished">Отмена</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="386"/>
         <source>文件</source>
-        <translation>Файл</translation>
+        <translation type="vanished">Файл</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="386"/>
         <source>大小</source>
-        <translation>Размер</translation>
+        <translation type="vanished">Размер</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="460"/>
         <source>其他</source>
-        <translation>Прочее</translation>
+        <translation type="vanished">Прочее</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="461"/>
         <source>仅选{0} ({1})</source>
-        <translation>Только {0} ({1})</translation>
+        <translation type="vanished">Только {0} ({1})</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="525"/>
         <source>已选择 {0}/{1} 个文件，共 {2}</source>
-        <translation>Выбрано: {0}/{1}, всего {2}</translation>
+        <translation type="vanished">Выбрано: {0}/{1}, всего {2}</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="575"/>
         <source>至少选择一个文件</source>
-        <translation>Выберите хотя бы один файл</translation>
+        <translation type="vanished">Выберите хотя бы один файл</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="576"/>
         <source>当前没有任何文件被勾选</source>
-        <translation>Не выбран ни один файл</translation>
+        <translation type="vanished">Не выбран ни один файл</translation>
+    </message>
+</context>
+<context>
+    <name>FtpFileSelectDialog</name>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="122"/>
+        <source>选择下载文件</source>
+        <translation type="unfinished">Выбор файлов</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="128"/>
+        <source>全选</source>
+        <translation type="unfinished">Выбрать все</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="129"/>
+        <source>全不选</source>
+        <translation type="unfinished">Снять всё</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="130"/>
+        <source>反选</source>
+        <translation type="unfinished">Инвертировать выбор</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="131"/>
+        <source>按类型选择</source>
+        <translation type="unfinished">Выбрать по типу</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="134"/>
+        <source>应用</source>
+        <translation type="unfinished">Приложение</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="135"/>
+        <source>取消</source>
+        <translation type="unfinished">Отмена</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="142"/>
+        <source>文件</source>
+        <translation type="unfinished">Файл</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="142"/>
+        <source>大小</source>
+        <translation type="unfinished">Размер</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="217"/>
+        <source>其他</source>
+        <translation type="unfinished">Прочее</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="220"/>
+        <source>仅选{0} ({1})</source>
+        <translation type="unfinished">Только {0} ({1})</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="290"/>
+        <source>已选择 {0}/{1} 个文件，共 {2}</source>
+        <translation type="unfinished">Выбрано: {0}/{1}, всего {2}</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="348"/>
+        <source>至少选择一个文件</source>
+        <translation type="unfinished">Выберите хотя бы один файл</translation>
+    </message>
+    <message>
+        <location filename="../../../features/ftp_pack/cards.py" line="349"/>
+        <source>当前没有任何文件被勾选</source>
+        <translation type="unfinished">Не выбран ни один файл</translation>
     </message>
 </context>
 <context>
     <name>FtpResultCard</name>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="72"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="370"/>
         <source>选择文件</source>
         <translation type="unfinished">选择文件</translation>
     </message>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="136"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="434"/>
         <source>FTP 目录</source>
         <translation type="unfinished">FTP 目录</translation>
     </message>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="136"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="434"/>
         <source>FTP 文件</source>
         <translation type="unfinished">FTP 文件</translation>
     </message>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="137"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="435"/>
         <source>{0} · {1}</source>
         <translation type="unfinished">{0} · {1}</translation>
     </message>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="145"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="443"/>
         <source>{0}/{1} 个文件 · {2}</source>
         <translation>Файлов: {0}/{1} · {2}</translation>
     </message>
@@ -821,7 +885,7 @@
 <context>
     <name>FtpTaskCard</name>
     <message>
-        <location filename="../../../features/ftp_pack/cards.py" line="211"/>
+        <location filename="../../../features/ftp_pack/cards.py" line="509"/>
         <source>{0}/{1} 个文件</source>
         <translation type="unfinished">{0}/{1} 个文件</translation>
     </message>
@@ -1158,92 +1222,92 @@ FFmpeg: {2}</translation>
 {0}</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="288"/>
+        <location filename="../../view/windows/main_window.py" line="292"/>
         <source>下载任务</source>
         <translation>Задачи</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="291"/>
+        <location filename="../../view/windows/main_window.py" line="295"/>
         <source>新建任务</source>
         <translation>Новая</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="297"/>
+        <location filename="../../view/windows/main_window.py" line="301"/>
         <source>设置</source>
         <translation>Настройки</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="389"/>
+        <location filename="../../view/windows/main_window.py" line="383"/>
         <source>检查更新</source>
         <translation>Проверить обновления</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="390"/>
+        <location filename="../../view/windows/main_window.py" line="384"/>
         <source>正在检查更新...</source>
         <translation>Проверка обновлений...</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="406"/>
+        <location filename="../../view/windows/main_window.py" line="400"/>
         <source>检查更新失败</source>
         <translation>Не удалось проверить обновления</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="407"/>
+        <location filename="../../view/windows/main_window.py" line="401"/>
         <source>无法获取最新版本信息</source>
         <translation>Не удалось получить информацию о последней версии</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="418"/>
+        <location filename="../../view/windows/main_window.py" line="412"/>
         <source>当前已是最新版本</source>
         <translation>Уже установлена последняя версия</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="419"/>
+        <location filename="../../view/windows/main_window.py" line="413"/>
         <source>当前版本 {0}，最新版本 {1}</source>
         <translation>Текущая версия {0}, последняя версия {1}</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="433"/>
+        <location filename="../../view/windows/main_window.py" line="427"/>
         <source>检测到新版本</source>
         <translation>Обнаружена новая версия</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="434"/>
+        <location filename="../../view/windows/main_window.py" line="428"/>
         <source>最新版本: {0}</source>
         <translation>Последняя версия: {0}</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="442"/>
+        <location filename="../../view/windows/main_window.py" line="436"/>
         <source>立即下载</source>
         <translation>Скачать сейчас</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="445"/>
+        <location filename="../../view/windows/main_window.py" line="439"/>
         <source>查看版本详细</source>
         <translation>Подробнее о версии</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="449"/>
+        <location filename="../../view/windows/main_window.py" line="443"/>
         <source>请作者喝咖啡</source>
         <translation>Угостить автора кофе</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="458"/>
+        <location filename="../../view/windows/main_window.py" line="452"/>
         <source>未找到适配的安装包</source>
         <translation>Подходящий установщик не найден</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="459"/>
+        <location filename="../../view/windows/main_window.py" line="453"/>
         <source>已打开版本详情，请手动选择要下载的文件</source>
         <translation>Сведения о версии открыты, выберите файл для загрузки вручную</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="486"/>
+        <location filename="../../view/windows/main_window.py" line="480"/>
         <source>创建下载任务失败</source>
         <translation>Не удалось создать задачу загрузки</translation>
     </message>
     <message>
-        <location filename="../../view/windows/main_window.py" line="496"/>
+        <location filename="../../view/windows/main_window.py" line="490"/>
         <source>已添加下载任务</source>
         <translation>Задача загрузки добавлена</translation>
     </message>
@@ -1267,48 +1331,48 @@ FFmpeg: {2}</translation>
 <context>
     <name>PlanTaskDialog</name>
     <message>
-        <location filename="../../view/components/dialogs.py" line="75"/>
+        <location filename="../../view/components/dialogs.py" line="47"/>
         <source>设置计划任务</source>
         <translation>Настроить планировщик</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="76"/>
+        <location filename="../../view/components/dialogs.py" line="48"/>
         <source>所有任务完成后执行以下操作：</source>
         <translation>После завершения всех задач выполнить:</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="78"/>
+        <location filename="../../view/components/dialogs.py" line="50"/>
         <source>关机</source>
         <translation>Выключить</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="79"/>
+        <location filename="../../view/components/dialogs.py" line="51"/>
         <source>重启</source>
         <translation>Перезагрузка</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="80"/>
+        <location filename="../../view/components/dialogs.py" line="52"/>
         <source>打开文件</source>
         <translation>Открыть файл</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="95"/>
+        <location filename="../../view/components/dialogs.py" line="67"/>
         <source>确认</source>
         <translation>Подтвердить</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="96"/>
+        <location filename="../../view/components/dialogs.py" line="68"/>
         <source>取消</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="104"/>
+        <location filename="../../view/components/dialogs.py" line="76"/>
         <source>请选择要打开的文件</source>
         <translation>Выберите файл для открытия</translation>
     </message>
     <message>
-        <location filename="../../view/components/dialogs.py" line="106"/>
-        <location filename="../../view/components/dialogs.py" line="143"/>
+        <location filename="../../view/components/dialogs.py" line="78"/>
+        <location filename="../../view/components/dialogs.py" line="115"/>
         <source>选择文件</source>
         <translation>Выбрать файл</translation>
     </message>
@@ -1511,12 +1575,12 @@ FFmpeg: {2}</translation>
 <context>
     <name>SelectFolderCard</name>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="39"/>
+        <location filename="../../view/components/add_task_dialog.py" line="40"/>
         <source>选择文件夹</source>
         <translation>Выбрать папку</translation>
     </message>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="61"/>
+        <location filename="../../view/components/add_task_dialog.py" line="56"/>
         <source>选择下载路径</source>
         <translation>Выбрать путь загрузки</translation>
     </message>
@@ -1568,7 +1632,7 @@ FFmpeg: {2}</translation>
     </message>
     <message>
         <location filename="../../view/pages/setting_page.py" line="40"/>
-        <location filename="../../view/pages/setting_page.py" line="303"/>
+        <location filename="../../view/pages/setting_page.py" line="322"/>
         <source>关于</source>
         <translation>О программе</translation>
     </message>
@@ -1653,243 +1717,263 @@ FFmpeg: {2}</translation>
         <translation>Показывать окно для настройки параметров</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="137"/>
+        <location filename="../../view/pages/setting_page.py" line="138"/>
+        <source>允许局域网连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="139"/>
+        <source>开启后浏览器扩展服务将监听 0.0.0.0，可供同一局域网内设备连接</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="146"/>
+        <source>浏览器扩展端口</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="147"/>
+        <source>修改后将自动重启浏览器扩展服务</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../../view/pages/setting_page.py" line="156"/>
         <source>复制令牌</source>
         <translation type="unfinished">复制令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="139"/>
+        <location filename="../../view/pages/setting_page.py" line="158"/>
         <source>配对令牌</source>
         <translation type="unfinished">配对令牌</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="145"/>
+        <location filename="../../view/pages/setting_page.py" line="164"/>
         <source>重新生成令牌</source>
         <translation>Сгенерировать токен заново</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="152"/>
+        <location filename="../../view/pages/setting_page.py" line="171"/>
         <source>导出 Chromium 扩展</source>
         <translation>Экспортировать расширение Chromium</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="154"/>
+        <location filename="../../view/pages/setting_page.py" line="173"/>
         <source>安装浏览器扩展</source>
         <translation>Установить расширение браузера</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="155"/>
+        <location filename="../../view/pages/setting_page.py" line="174"/>
         <source>请选择最适合您的浏览器扩展安装方式</source>
         <translation>Выберите подходящий способ установки расширения</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="160"/>
+        <location filename="../../view/pages/setting_page.py" line="179"/>
         <source>Firefox</source>
         <translation type="unfinished">Firefox</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="167"/>
+        <location filename="../../view/pages/setting_page.py" line="186"/>
         <source>Edge</source>
         <translation>Edge</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="181"/>
+        <location filename="../../view/pages/setting_page.py" line="200"/>
         <source>查看安装指南</source>
         <translation>Открыть руководство</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="183"/>
+        <location filename="../../view/pages/setting_page.py" line="202"/>
         <source>浏览器扩展安装指南</source>
         <translation>Руководство по установке</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="184"/>
+        <location filename="../../view/pages/setting_page.py" line="203"/>
         <source>解决安装浏览器扩展时遇到的常见问题</source>
         <translation>Решение проблем установки расширения</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="192"/>
+        <location filename="../../view/pages/setting_page.py" line="211"/>
         <source>应用主题</source>
         <translation>Тема приложения</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="193"/>
+        <location filename="../../view/pages/setting_page.py" line="212"/>
         <source>更改应用程序的外观</source>
         <translation>Изменение внешнего вида приложения</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="213"/>
         <source>浅色</source>
         <translation>Светлая</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="213"/>
         <source>深色</source>
         <translation>Тёмная</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="194"/>
+        <location filename="../../view/pages/setting_page.py" line="213"/>
         <source>跟随系统设置</source>
         <translation>Следовать системным настройкам</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="209"/>
+        <location filename="../../view/pages/setting_page.py" line="228"/>
         <source>窗口背景透明材质</source>
         <translation>Материал прозрачности окна</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="210"/>
+        <location filename="../../view/pages/setting_page.py" line="229"/>
         <source>设置窗口背景透明效果和透明材质</source>
         <translation>Настройка прозрачности окна</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="217"/>
+        <location filename="../../view/pages/setting_page.py" line="236"/>
         <source>界面缩放</source>
         <translation>Масштаб интерфейса</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="218"/>
+        <location filename="../../view/pages/setting_page.py" line="237"/>
         <source>改变应用程序界面的缩放比例, 0% 为自动</source>
         <translation>Масштаб интерфейса, 0% — авто</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="228"/>
+        <location filename="../../view/pages/setting_page.py" line="247"/>
         <source>在 Dock 栏中显示程序</source>
         <translation>Показывать значок приложения в Dock</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="229"/>
+        <location filename="../../view/pages/setting_page.py" line="248"/>
         <source>关闭后可通过菜单栏图标继续使用程序</source>
         <translation>Программа продолжит работу в системном трее после закрытия</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="237"/>
+        <location filename="../../view/pages/setting_page.py" line="256"/>
         <source>语言</source>
         <translation>Язык</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="238"/>
+        <location filename="../../view/pages/setting_page.py" line="257"/>
         <source>设置界面的首选语言</source>
         <translation>Предпочитаемый язык интерфейса</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="247"/>
+        <location filename="../../view/pages/setting_page.py" line="266"/>
         <source>使用系统设置</source>
         <translation>Следовать системе</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="255"/>
+        <location filename="../../view/pages/setting_page.py" line="274"/>
         <source>在应用程序启动时检查更新</source>
         <translation>Проверять обновления при запуске</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="256"/>
+        <location filename="../../view/pages/setting_page.py" line="275"/>
         <source>新版本将更稳定，并具有更多功能</source>
         <translation>Новые версии стабильнее и с большим числом функций</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="263"/>
+        <location filename="../../view/pages/setting_page.py" line="282"/>
         <source>开机启动</source>
         <translation>Автозапуск</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="264"/>
+        <location filename="../../view/pages/setting_page.py" line="283"/>
         <source>在系统启动时静默运行 Ghost Downloader</source>
         <translation>Тихий запуск при старте системы</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="271"/>
+        <location filename="../../view/pages/setting_page.py" line="290"/>
         <source>剪贴板监听</source>
         <translation>Буфер обмена</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="272"/>
+        <location filename="../../view/pages/setting_page.py" line="291"/>
         <source>剪贴板监听器将自动检测剪贴板中的链接并添加下载任务</source>
         <translation>Слушатель буфера обмена находит ссылки и добавляет задачи</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="280"/>
+        <location filename="../../view/pages/setting_page.py" line="299"/>
         <source>打开作者的个人空间</source>
         <translation>Открыть страницу автора</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="282"/>
+        <location filename="../../view/pages/setting_page.py" line="301"/>
         <source>了解作者</source>
         <translation>Об авторе</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="283"/>
+        <location filename="../../view/pages/setting_page.py" line="302"/>
         <source>发现更多 {} 的作品</source>
         <translation>Найти больше работ {}</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="288"/>
-        <location filename="../../view/pages/setting_page.py" line="290"/>
+        <location filename="../../view/pages/setting_page.py" line="307"/>
+        <location filename="../../view/pages/setting_page.py" line="309"/>
         <source>提供反馈</source>
         <translation>Обратная связь</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="291"/>
+        <location filename="../../view/pages/setting_page.py" line="310"/>
         <source>通过提供反馈来帮助我们改进 Ghost Downloader</source>
         <translation>Помогите улучшить Ghost Downloader, оставив отзыв</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="296"/>
+        <location filename="../../view/pages/setting_page.py" line="315"/>
         <source>查看日志</source>
         <translation>Просмотреть журнал</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="301"/>
+        <location filename="../../view/pages/setting_page.py" line="320"/>
         <source>检查更新</source>
         <translation>Проверить обновления</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="333"/>
+        <location filename="../../view/pages/setting_page.py" line="354"/>
         <source>已配置</source>
         <translation>Настроено</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="333"/>
+        <location filename="../../view/pages/setting_page.py" line="354"/>
         <source>重启软件后生效</source>
         <translation>Вступит в силу после перезапуска</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="350"/>
+        <location filename="../../view/pages/setting_page.py" line="371"/>
         <source>已复制配对令牌</source>
         <translation>Токен скопирован</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="362"/>
+        <location filename="../../view/pages/setting_page.py" line="383"/>
         <source>已重新生成配对令牌</source>
         <translation>Токен был повторно сгенерирован</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="363"/>
+        <location filename="../../view/pages/setting_page.py" line="384"/>
         <source>新令牌已复制到剪贴板</source>
         <translation>Новый токен скопирован</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="373"/>
+        <location filename="../../view/pages/setting_page.py" line="394"/>
         <source>选择导出路径</source>
         <translation>Выбрать путь для экспорта</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="384"/>
+        <location filename="../../view/pages/setting_page.py" line="405"/>
         <source>安装指南</source>
         <translation>Руководство по установке</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="385"/>
+        <location filename="../../view/pages/setting_page.py" line="406"/>
         <source>请按照步骤安装浏览器扩展</source>
         <translation>Следуйте шагам для установки расширения</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="483"/>
+        <location filename="../../view/pages/setting_page.py" line="504"/>
         <source>警告</source>
         <translation>Предупреждение</translation>
     </message>
     <message>
-        <location filename="../../view/pages/setting_page.py" line="484"/>
+        <location filename="../../view/pages/setting_page.py" line="505"/>
         <source>鬼知道你用的是什么平台？</source>
         <translation>Кто его знает, какая у вас платформа?</translation>
     </message>
@@ -2059,6 +2143,79 @@ FFmpeg: {2}</translation>
     </message>
 </context>
 <context>
+    <name>TorrentFileSelectDialog</name>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="123"/>
+        <source>选择下载文件</source>
+        <translation type="unfinished">Выбор файлов</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="129"/>
+        <source>全选</source>
+        <translation type="unfinished">Выбрать все</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="130"/>
+        <source>全不选</source>
+        <translation type="unfinished">Снять всё</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="131"/>
+        <source>反选</source>
+        <translation type="unfinished">Инвертировать выбор</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="132"/>
+        <source>按类型选择</source>
+        <translation type="unfinished">Выбрать по типу</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="135"/>
+        <source>应用</source>
+        <translation type="unfinished">Приложение</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="136"/>
+        <source>取消</source>
+        <translation type="unfinished">Отмена</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="143"/>
+        <source>文件</source>
+        <translation type="unfinished">Файл</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="143"/>
+        <source>大小</source>
+        <translation type="unfinished">Размер</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="216"/>
+        <source>其他</source>
+        <translation type="unfinished">Прочее</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="217"/>
+        <source>仅选{0} ({1})</source>
+        <translation type="unfinished">Только {0} ({1})</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="283"/>
+        <source>已选择 {0}/{1} 个文件，共 {2}</source>
+        <translation type="unfinished">Выбрано: {0}/{1}, всего {2}</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="337"/>
+        <source>至少选择一个文件</source>
+        <translation type="unfinished">Выберите хотя бы один файл</translation>
+    </message>
+    <message>
+        <location filename="../../../features/bittorrent_pack/cards.py" line="338"/>
+        <source>当前没有任何文件被勾选</source>
+        <translation type="unfinished">Не выбран ни один файл</translation>
+    </message>
+</context>
+<context>
     <name>UniversalTaskCard</name>
     <message>
         <location filename="../../view/components/cards.py" line="316"/>
@@ -2206,9 +2363,8 @@ FFmpeg: {2}</translation>
 <context>
     <name>self._dialog</name>
     <message>
-        <location filename="../../view/components/add_task_dialog.py" line="133"/>
         <source>添加任务</source>
-        <translation>Добавить задачу</translation>
+        <translation type="vanished">Добавить задачу</translation>
     </message>
 </context>
 </TS>
