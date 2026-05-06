@@ -55,6 +55,16 @@ type NetworkResponseMeta = {
 };
 
 type DesktopRequestSender = <T extends DesktopRequestResult>(payload: Record<string, unknown>) => Promise<T>;
+
+type DownloadBlockInput = {
+  url: string;
+  filename?: string;
+  mime?: string;
+  size?: number;
+};
+
+type DownloadBlockPredicate = (input: DownloadBlockInput) => boolean;
+
 type ResourceBucket = Map<string, CapturedResource>;
 
 const HEADER_WHITELIST = new Set([
@@ -103,6 +113,7 @@ const MIME_EXTENSIONS: Record<string, string> = {
 
 export function createResourceBridge(options: {
   sendDesktopRequest: DesktopRequestSender;
+  shouldBlockDownload?: DownloadBlockPredicate;
 }) {
   let bridgePersistTimer: number | null = null;
   let bridgeStateReady = false;
@@ -222,6 +233,15 @@ export function createResourceBridge(options: {
     }
     meta.size = contentRangeSize || contentLengthSize;
     return meta;
+  }
+
+  function shouldBlockParsedDownload(url: string, meta: NetworkResponseMeta): boolean {
+    return Boolean(options.shouldBlockDownload?.({
+      url,
+      filename: meta.filename || trimFilename(filenameFromUrl(url)),
+      mime: meta.mime || mimeFromUrl(url),
+      size: meta.size > 0 ? meta.size : undefined,
+    }));
   }
 
   function shouldCaptureNetworkResource(details: chrome.webRequest.OnResponseStartedDetails, meta: NetworkResponseMeta): boolean {
@@ -803,6 +823,114 @@ export function createResourceBridge(options: {
     });
   }
 
+  function responseHeaderValue(headers: chrome.webRequest.HttpHeader[] | undefined, headerName: string): string {
+    const normalizedName = headerName.toLowerCase();
+    return String(
+      (headers ?? []).find((header) => String(header.name ?? "").toLowerCase() === normalizedName)?.value ?? "",
+    ).trim();
+  }
+
+  function isLikelyFirefoxDownloadResponse(
+    details: chrome.webRequest.OnHeadersReceivedDetails,
+    meta: NetworkResponseMeta,
+  ): boolean {
+    if (!isCapturableUrl(details.url)) {
+      return false;
+    }
+
+    const statusCode = Number(details.statusCode ?? 0);
+    if (statusCode < 200 || statusCode >= 400) {
+      return false;
+    }
+
+    const contentDisposition = responseHeaderValue(details.responseHeaders, "content-disposition").toLowerCase();
+    const isAttachment = contentDisposition.includes("attachment");
+    const extension = fileExtension(meta.filename || filenameFromUrl(details.url));
+    const mime = (mimeFromUrl(details.url) || meta.mime || "").toLowerCase();
+
+    if (isAttachment || meta.filename) {
+      return true;
+    }
+
+    if (!extension && !mime) {
+      return false;
+    }
+
+    if (
+      mime.startsWith("text/html")
+      || mime.startsWith("text/css")
+      || mime.startsWith("text/javascript")
+      || mime.includes("javascript")
+      || mime === "application/json"
+      || mime === "application/xml"
+      || mime === "text/xml"
+    ) {
+      return false;
+    }
+
+    return (
+      isCatCatchMedia(extension, mime)
+      || Boolean(extension && meta.size > 0)
+      || mime === "application/octet-stream"
+      || mime === "application/x-msdownload"
+      || mime === "application/x-zip-compressed"
+      || mime === "application/zip"
+    );
+  }
+
+  async function tryInterceptFirefoxDownload(
+    details: chrome.webRequest.OnHeadersReceivedDetails,
+  ): Promise<chrome.webRequest.BlockingResponse | undefined> {
+    const meta = responseMeta(details.responseHeaders);
+    meta.mime = mimeFromUrl(details.url) || meta.mime;
+
+    if (shouldBlockParsedDownload(details.url, meta)) {
+      return undefined;
+    }
+
+    if (!isLikelyFirefoxDownloadResponse(details, meta)) {
+      return undefined;
+    }
+
+    const finalUrl = details.url;
+    const headerSnapshot = resolveHeaderSnapshot(finalUrl);
+    const headers = { ...(headerSnapshot?.headers ?? {}) };
+    const referer =
+      headers.referer
+      || (details.originUrl && details.originUrl !== "null" ? details.originUrl : "")
+      || (details.initiator && details.initiator !== "null" ? details.initiator : "");
+
+    if (referer) {
+      headers.referer = referer;
+    }
+
+    const resolvedFilename =
+      meta.filename
+      || trimFilename(filenameFromUrl(finalUrl))
+      || "resource";
+
+    void options.sendDesktopRequest<DesktopRequestResult>({
+      type: "create_task",
+      source: "download",
+      title: resolvedFilename,
+      payload: {
+        url: finalUrl,
+        headers,
+        filename: resolvedFilename,
+        size: meta.size,
+        supportsRange: Boolean(meta.supportsRange || headerSnapshot?.supportsRange),
+      },
+    }).then((result) => {
+      if (result.ok) {
+        void openActionPopup();
+      }
+    }).catch(() => {
+      // 如果桌面端送出失败，浏览器下载已经被取消；这里避免影响 background。
+    });
+
+    return { cancel: true };
+  }
+
   async function handoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem) {
     const finalUrl = downloadItem.finalUrl || downloadItem.url;
     const matchedResource =
@@ -813,6 +941,18 @@ export function createResourceBridge(options: {
       || trimFilename(matchedResource?.filename ?? "")
       || trimFilename(filenameFromUrl(finalUrl))
       || "resource";
+
+    if (options.shouldBlockDownload?.({
+      url: finalUrl,
+      filename: resolvedFilename,
+      mime: matchedResource?.mime ?? "",
+      size:
+        typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+          ? downloadItem.totalBytes
+          : matchedResource?.size,
+    })) {
+      return;
+    }
 
     const headerSnapshot =
       resolveHeaderSnapshot(finalUrl)
@@ -1078,5 +1218,6 @@ export function createResourceBridge(options: {
     mergeResources,
     sendResource,
     setLastActiveTab,
+    tryInterceptFirefoxDownload,
   };
 }

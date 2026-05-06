@@ -71,16 +71,26 @@ export interface FeatureStateMap {
   catch: boolean;
 }
 
+export interface MediaTabOption {
+  tabId: number;
+  title: string;
+  domain: string;
+}
+
 export interface MediaItemOption {
   index: number;
   label: string;
+  type: "video" | "audio";
 }
 
 export interface MediaPlaybackState {
   available: boolean;
+  stale: boolean;
   message: string;
   tabId: number | null;
   mediaIndex: number;
+  frameId: number;
+  count: number;
   currentTime: number;
   duration: number;
   progress: number;
@@ -89,6 +99,7 @@ export interface MediaPlaybackState {
   loop: boolean;
   muted: boolean;
   speed: number;
+  mediaType: "video" | "audio" | "";
 }
 
 export interface PopupStatePayload {
@@ -108,8 +119,16 @@ export interface PopupStatePayload {
   tabId: number | null;
   activePageDomain: string;
   featureStates: FeatureStateMap;
+  mediaTabs: MediaTabOption[];
   mediaItems: MediaItemOption[];
+  selectedMediaTabId: number | null;
+  selectedMediaIndex: number;
   mediaPlaybackState: MediaPlaybackState;
+
+  domainBlacklist: string;
+  typeBlacklist: string;
+  sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
 }
 
 export interface DesktopRequestResult {

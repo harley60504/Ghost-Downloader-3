@@ -7,6 +7,7 @@ import {
   MessageBar,
   MessageBarBody,
   Select,
+  Textarea,
   makeStyles,
 } from "@fluentui/react-components";
 import {
@@ -90,6 +91,16 @@ export function SettingsPage({
   themePreference,
   resolvedThemePreference,
   onThemePreferenceChange,
+
+  domainBlacklist,
+  typeBlacklist,
+  sizeBlacklistMB,
+  notifyOnTaskCreated,
+  updatingNotifyOnTaskCreated,
+  onSaveDomainBlacklist,
+  onSaveTypeBlacklist,
+  onSaveSizeBlacklist,
+  onNotifyOnTaskCreatedChange,
 }: {
   connectionState: DesktopConnectionState;
   connectionMessage: string;
@@ -107,12 +118,27 @@ export function SettingsPage({
   themePreference: ThemePreference;
   resolvedThemePreference: Exclude<ThemePreference, "system">;
   onThemePreferenceChange: (nextPreference: ThemePreference) => void;
+
+  domainBlacklist: string;
+  typeBlacklist: string;
+  sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
+  updatingNotifyOnTaskCreated?: boolean;
+
+  onSaveDomainBlacklist: (value: string) => Promise<boolean>;
+  onSaveTypeBlacklist: (value: string) => Promise<boolean>;
+  onSaveSizeBlacklist: (value: string) => Promise<boolean>;
+  onNotifyOnTaskCreatedChange: (next: boolean) => void;
 }) {
   const styles = useStyles();
   const [tokenDraft, setTokenDraft] = useState(token);
   const [serverUrlDraft, setServerUrlDraft] = useState(serverUrl || DEFAULT_SERVER_URL);
   const [tokenDirty, setTokenDirty] = useState(false);
   const [serverDirty, setServerDirty] = useState(false);
+
+  const [domainBlacklistDraft, setDomainBlacklistDraft] = useState(domainBlacklist || "");
+  const [typeBlacklistDraft, setTypeBlacklistDraft] = useState(typeBlacklist || "");
+  const [sizeBlacklistDraft, setSizeBlacklistDraft] = useState(sizeBlacklistMB || "");
 
   useEffect(() => {
     if (!tokenDirty) {
@@ -125,6 +151,18 @@ export function SettingsPage({
       setServerUrlDraft(serverUrl || DEFAULT_SERVER_URL);
     }
   }, [serverDirty, serverUrl]);
+
+  useEffect(() => {
+    setDomainBlacklistDraft(domainBlacklist || "");
+  }, [domainBlacklist]);
+
+  useEffect(() => {
+    setTypeBlacklistDraft(typeBlacklist || "");
+  }, [typeBlacklist]);
+
+  useEffect(() => {
+    setSizeBlacklistDraft(sizeBlacklistMB || "");
+  }, [sizeBlacklistMB]);
 
   async function commitServerUrl() {
     const nextServerUrl = serverUrlDraft.trim() || DEFAULT_SERVER_URL;
@@ -167,6 +205,18 @@ export function SettingsPage({
     }
   }
 
+  async function commitDomainBlacklist() {
+    await onSaveDomainBlacklist(domainBlacklistDraft);
+  }
+
+  async function commitTypeBlacklist() {
+    await onSaveTypeBlacklist(typeBlacklistDraft);
+  }
+
+  async function commitSizeBlacklist() {
+    await onSaveSizeBlacklist(sizeBlacklistDraft);
+  }
+
   return (
     <div className={styles.root}>
       <Card appearance="filled-alternative" className={styles.card}>
@@ -185,7 +235,7 @@ export function SettingsPage({
           </div>
         </div>
 
-        <Field label="本地服务地址">
+        <Field label="桌面端服务地址">
           <div className={styles.inputRow}>
             <Input
               className={styles.input}
@@ -230,8 +280,67 @@ export function SettingsPage({
                 }
               }}
             />
-            <Button disabled={savingToken} icon={<ClipboardPasteRegular />} aria-label="粘贴令牌" onClick={() => void pasteToken()} />
+            <Button
+              disabled={savingToken}
+              icon={<ClipboardPasteRegular />}
+              aria-label="粘贴令牌"
+              onClick={() => void pasteToken()}
+            />
           </div>
+        </Field>
+      </Card>
+
+      <Card appearance="filled-alternative" className={styles.card}>
+        <Body1Strong>拦截规则</Body1Strong>
+
+        <Field label="网域黑名单">
+          <Textarea
+            resize="vertical"
+            placeholder={"每行一个，例如：\ndrive.google.com\nexample.com"}
+            value={domainBlacklistDraft}
+            onBlur={() => void commitDomainBlacklist()}
+            onChange={(_event, data) => setDomainBlacklistDraft(data.value)}
+          />
+        </Field>
+
+        <Field label="类型黑名单">
+          <Textarea
+            resize="vertical"
+            placeholder={"每行一个，例如：\n.jpg\n.png\nimage/"}
+            value={typeBlacklistDraft}
+            onBlur={() => void commitTypeBlacklist()}
+            onChange={(_event, data) => setTypeBlacklistDraft(data.value)}
+          />
+        </Field>
+
+        <Field label="最小下载大小（MB）">
+          <Input
+            className={styles.input}
+            placeholder="例如：5"
+            value={sizeBlacklistDraft}
+            onBlur={() => void commitSizeBlacklist()}
+            onChange={(_event, data) => setSizeBlacklistDraft(data.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void commitSizeBlacklist();
+              }
+            }}
+          />
+        </Field>
+      </Card>
+
+      <Card appearance="filled-alternative" className={styles.card}>
+        <Body1Strong>通知设置</Body1Strong>
+
+        <Field label="加入任务时发送通知">
+          <Select
+            value={notifyOnTaskCreated ? "on" : "off"}
+            disabled={updatingNotifyOnTaskCreated}
+            onChange={(_event) => onNotifyOnTaskCreatedChange(_event.currentTarget.value === "on")}
+          >
+            <option value="on">开启</option>
+            <option value="off">关闭</option>
+          </Select>
         </Field>
       </Card>
 
@@ -260,13 +369,6 @@ export function SettingsPage({
             <option value="dark">深色</option>
           </Select>
         </Field>
-        {/* <MessageBar intent="info">
-          <MessageBarBody>
-            {themePreference === "system"
-              ? `当前正在跟随系统，实际使用${resolvedThemePreference === "dark" ? "深色" : "浅色"}主题`
-              : `当前正在使用${themePreference === "dark" ? "深色" : "浅色"}主题`}
-          </MessageBarBody>
-        </MessageBar> */}
       </Card>
 
       <section className={styles.helpSection}>
