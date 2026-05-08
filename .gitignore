@@ -1,6 +1,6 @@
 # ===== Editor / IDE =====
 .vscode/
-.VSCodeCounter
+.VSCodeCounter/
 *.code-workspace
 .idea/
 .DS_Store
@@ -55,8 +55,29 @@ env/
 
 # ===== Browser extension dependencies / outputs =====
 browser_extension/app/node_modules/
+browser_extension/app/.vite/
+browser_extension/app/dist/
+browser_extension/app/build/
 browser_extension/chromium/
 browser_extension/firefox/
+
+# ===== Browser extension packaged artifacts =====
+*.xpi
+*.crx
+*.pem
+browser_extension/*.zip
+browser_extension/*.xpi
+browser_extension/*.crx
+
+# ===== Large / generated archives =====
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+
+# Keep npm lockfile for reproducible AMO review builds
+!browser_extension/app/package-lock.json
 
 # ===== Package manager locks you want ignored =====
 uv.lock

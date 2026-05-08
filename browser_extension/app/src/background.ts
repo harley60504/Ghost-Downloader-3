@@ -98,22 +98,55 @@ function isTypeBlacklistedByMeta(filename: string, mime: string, rawUrl: string)
   });
 }
 
-function isSizeBlacklistedByValue(sizeBytes: number): boolean {
-  const raw = String(sizeBlacklistMB ?? "").trim();
+function parseSizeRuleToBytes(value: string): number {
+  const raw = String(value ?? "").trim().toLowerCase();
   if (!raw) {
+    return 0;
+  }
+
+  // 支援：
+  // 10      => 10 MB
+  // 10mb    => 10 MB
+  // 500kb   => 500 KB
+  // 1.5gb   => 1.5 GB
+  // <10mb / <=10mb 也會當作 10 MB 門檻
+  const match = raw.match(/^\s*(?:<|<=)?\s*(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?\s*$/i);
+  if (!match) {
+    return 0;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 0;
+  }
+
+  const unit = (match[2] || "mb").toLowerCase();
+  if (unit === "b") {
+    return amount;
+  }
+  if (unit === "kb" || unit === "kib") {
+    return amount * 1024;
+  }
+  if (unit === "gb" || unit === "gib") {
+    return amount * 1024 * 1024 * 1024;
+  }
+  return amount * 1024 * 1024;
+}
+
+function isSizeBlacklistedByValue(sizeBytes: number): boolean {
+  const thresholdBytes = parseSizeRuleToBytes(sizeBlacklistMB);
+  if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0) {
     return false;
   }
 
-  const thresholdMB = Number(raw);
-  if (!Number.isFinite(thresholdMB) || thresholdMB <= 0) {
-    return false;
-  }
-
+  // Firefox/Chrome 有些下載在早期事件拿不到 Content-Length。
+  // 拿不到大小時不能用 size blacklist 判斷，避免誤擋。
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return false;
   }
 
-  return sizeBytes < thresholdMB * 1024 * 1024;
+  // 目前 UI 的語意是「小於此大小的下載不自動攔截」。
+  return sizeBytes < thresholdBytes;
 }
 
 function shouldBlockByBlacklist(input: {
@@ -530,19 +563,21 @@ async function interceptBrowserDownload(
 ) {
   const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
 
-  if (!interceptDownloads || !desktopBridge.isReady() || !/^https?:/i.test(finalUrl)) {
+  if (!desktopBridge.isReady() || !resourceBridge.shouldHandoffBrowserDownload(downloadItem, interceptDownloads)) {
+    return;
+  }
+
+  const prepared = await resourceBridge.prepareBrowserDownloadHandoff(downloadItem);
+  if (!prepared) {
     return;
   }
 
   if (
     shouldBlockByBlacklist({
       url: finalUrl,
-      filename: String(downloadItem.filename || ""),
-      mime: "",
-      size:
-        typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-          ? downloadItem.totalBytes
-          : undefined,
+      filename: prepared.filename || String(downloadItem.filename || ""),
+      mime: prepared.mime || "",
+      size: prepared.size > 0 ? prepared.size : undefined,
     })
   ) {
     return;
@@ -550,27 +585,32 @@ async function interceptBrowserDownload(
 
   try {
     await cancelDownload(downloadItem.id);
-    if (options.eraseFromHistory) {
-      await eraseDownloadFromHistory(downloadItem.id);
-    }
+    await eraseDownloadFromHistory(downloadItem.id);
   } catch {
     // Ignore cancellation cleanup failures; the browser download may continue as fallback.
   }
 
-  await resourceBridge.handoffBrowserDownload(downloadItem);
-  await showTaskCreatedNotification();
+  const handoffResult = await resourceBridge.handoffPreparedBrowserDownload(prepared);
+  if (handoffResult.ok) {
+    await showTaskCreatedNotification(handoffResult.message);
+  }
   refreshAndBroadcastTaskState();
 }
 
-if (supportsDownloadDeterminingFilename()) {
-  chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-    suggest();
-    void interceptBrowserDownload(downloadItem);
-  });
-} else if (chrome.downloads?.onCreated?.addListener) {
-  chrome.downloads.onCreated.addListener((downloadItem) => {
-    void interceptBrowserDownload(downloadItem, { eraseFromHistory: true });
-  });
+// Firefox 主要靠 webRequest.onHeadersReceived + blocking 早期攔截。
+// 不再讓 Firefox 進入 chrome.downloads fallback，避免 blocklist 放行後，
+// 下載框已出現又被 downloads.onCreated / onDeterminingFilename 取消並送進下載器。
+if (!isFirefoxExtension()) {
+  if (supportsDownloadDeterminingFilename()) {
+    chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+      suggest();
+      void interceptBrowserDownload(downloadItem);
+    });
+  } else if (chrome.downloads?.onCreated?.addListener) {
+    chrome.downloads.onCreated.addListener((downloadItem) => {
+      void interceptBrowserDownload(downloadItem, { eraseFromHistory: true });
+    });
+  }
 }
 
 function reply(sendResponse: (response?: unknown) => void, response: Promise<unknown>) {

@@ -47,6 +47,16 @@ type BridgeResourcePayload = {
   requestHeaders?: Record<string, string>;
 };
 
+type PreparedBrowserDownloadHandoff = {
+  finalUrl: string;
+  filename: string;
+  mime: string;
+  headers: Record<string, string>;
+  size: number;
+  supportsRange: boolean;
+  matchedResource: CapturedResource | null;
+};
+
 type NetworkResponseMeta = {
   size: number;
   mime: string;
@@ -210,8 +220,13 @@ export function createResourceBridge(options: {
     for (const header of headers ?? []) {
       const name = String(header.name ?? "").toLowerCase();
       const value = String(header.value ?? "").trim();
-      if (name === "content-length") {
-        const size = Number.parseInt(value, 10);
+      if (
+        name === "content-length"
+        || name === "x-file-size"
+        || name === "x-original-content-length"
+        || name === "x-goog-stored-content-length"
+      ) {
+        const size = Number.parseInt(value.replace(/[^0-9]/g, ""), 10);
         contentLengthSize = Number.isFinite(size) && size > 0 ? size : contentLengthSize;
       } else if (name === "content-type") {
         meta.mime = value.split(";")[0]?.trim().toLowerCase() ?? "";
@@ -226,7 +241,8 @@ export function createResourceBridge(options: {
       } else if (name === "accept-ranges") {
         meta.supportsRange = value.toLowerCase().includes("bytes");
       } else if (name === "content-range") {
-        const size = Number.parseInt(value.split("/")[1] ?? "", 10);
+        const totalText = value.split("/")[1] ?? "";
+        const size = Number.parseInt(totalText.replace(/[^0-9]/g, ""), 10);
         contentRangeSize = Number.isFinite(size) && size > 0 ? size : contentRangeSize;
         meta.supportsRange = true;
       }
@@ -931,6 +947,205 @@ export function createResourceBridge(options: {
     return { cancel: true };
   }
 
+  function findBestResourceForDownload(rawUrl: string): CapturedResource | null {
+    const normalizedUrl = normalizeUrl(rawUrl, true);
+    if (!normalizedUrl) {
+      return null;
+    }
+
+    let bestResource: CapturedResource | null = null;
+    let bestScore = -1;
+
+    for (const resource of resourcesById.values()) {
+      const resourceUrl = normalizeUrl(resource.url, true);
+      if (!resourceUrl) {
+        continue;
+      }
+
+      let score = -1;
+      if (resourceUrl === normalizedUrl) {
+        score = 100;
+      } else if (resourceUrl.includes(normalizedUrl) || normalizedUrl.includes(resourceUrl)) {
+        score = 60;
+      } else {
+        continue;
+      }
+
+      if (resource.size > 0) {
+        score += 10;
+      }
+      if (resource.mime) {
+        score += 5;
+      }
+      if (resource.filename && resource.filename !== "resource") {
+        score += 5;
+      }
+
+      if (!bestResource || score > bestScore || (score === bestScore && resource.capturedAt > bestResource.capturedAt)) {
+        bestResource = resource;
+        bestScore = score;
+      }
+    }
+
+    return bestResource;
+  }
+
+  function resolveHeaderSnapshotLoosely(rawUrl: string): BridgeHeaderSnapshot | null {
+    pruneHeaderSnapshots();
+    const normalizedUrl = normalizeUrl(rawUrl, true);
+    if (!normalizedUrl) {
+      return null;
+    }
+
+    const exact = headerSnapshotsByUrl.get(normalizedUrl) ?? headerSnapshotsByUrl.get(rawUrl);
+    if (exact) {
+      return exact;
+    }
+
+    let matched: BridgeHeaderSnapshot | null = null;
+    for (const snapshot of headerSnapshotsByUrl.values()) {
+      const snapshotUrl = normalizeUrl(snapshot.url, true);
+      if (!snapshotUrl) {
+        continue;
+      }
+      if (snapshotUrl === normalizedUrl || snapshotUrl.includes(normalizedUrl) || normalizedUrl.includes(snapshotUrl)) {
+        if (!matched || snapshot.capturedAt > matched.capturedAt) {
+          matched = snapshot;
+        }
+      }
+    }
+
+    return matched;
+  }
+
+  function mergeReplayHeaders(...sources: Array<Record<string, string> | undefined>): Record<string, string> {
+    const merged: Record<string, string> = {};
+    for (const source of sources) {
+      Object.assign(merged, normalizeHeaders(source));
+    }
+    return merged;
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => self.setTimeout(resolve, ms));
+  }
+
+  async function waitForReplayContext(rawUrl: string, timeoutMs = 1200): Promise<{
+    matchedResource: CapturedResource | null;
+    headerSnapshot: BridgeHeaderSnapshot | null;
+  }> {
+    const deadline = Date.now() + timeoutMs;
+    let matchedResource = findBestResourceForDownload(rawUrl);
+    let headerSnapshot = resolveHeaderSnapshotLoosely(rawUrl);
+
+    while (!matchedResource && !headerSnapshot && Date.now() < deadline) {
+      await sleep(100);
+      matchedResource = findBestResourceForDownload(rawUrl);
+      headerSnapshot = resolveHeaderSnapshotLoosely(rawUrl);
+    }
+
+    return { matchedResource, headerSnapshot };
+  }
+
+  function shouldHandoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem, interceptDownloads: boolean): boolean {
+    const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
+    if (!interceptDownloads) {
+      return false;
+    }
+    if (!isCapturableUrl(finalUrl)) {
+      return false;
+    }
+    return true;
+  }
+
+  async function prepareBrowserDownloadHandoff(
+    downloadItem: chrome.downloads.DownloadItem,
+  ): Promise<PreparedBrowserDownloadHandoff | null> {
+    const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
+    if (!isCapturableUrl(finalUrl)) {
+      return null;
+    }
+
+    const { matchedResource, headerSnapshot } = await waitForReplayContext(finalUrl, 1200);
+    if (!matchedResource && !headerSnapshot) {
+      return null;
+    }
+
+    const fileSize = Number((downloadItem as chrome.downloads.DownloadItem & { fileSize?: number }).fileSize ?? 0);
+    const filename =
+      trimFilename(matchedResource?.filename ?? "")
+      || trimFilename(downloadItem.filename)
+      || trimFilename(filenameFromUrl(finalUrl))
+      || "resource";
+    const mime = String(matchedResource?.mime ?? "").toLowerCase();
+    const headers = mergeReplayHeaders(
+      matchedResource?.requestHeaders,
+      headerSnapshot?.headers,
+      downloadItem.referrer ? { referer: downloadItem.referrer } : undefined,
+      matchedResource?.referer ? { referer: matchedResource.referer } : undefined,
+    );
+    const size =
+      matchedResource?.size && matchedResource.size > 0
+        ? matchedResource.size
+        : typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+          ? downloadItem.totalBytes
+          : Number.isFinite(fileSize) && fileSize > 0
+            ? fileSize
+            : 0;
+    const supportsRange = Boolean(
+      matchedResource?.supportsRange
+      || headerSnapshot?.supportsRange
+      || downloadItem.canResume === true,
+    );
+
+    return {
+      finalUrl,
+      filename,
+      mime,
+      headers,
+      size,
+      supportsRange,
+      matchedResource,
+    };
+  }
+
+  async function handoffPreparedBrowserDownload(
+    prepared: PreparedBrowserDownloadHandoff,
+  ): Promise<DesktopRequestResult> {
+    try {
+      const result = await options.sendDesktopRequest<DesktopRequestResult>({
+        type: "create_task",
+        source: "download",
+        title: prepared.filename,
+        payload: {
+          url: prepared.finalUrl,
+          headers: prepared.headers,
+          filename: prepared.filename,
+          size: prepared.size,
+          supportsRange: prepared.supportsRange,
+        },
+      });
+
+      if (result.ok) {
+        if (prepared.matchedResource) {
+          markResourceSent(prepared.matchedResource.id);
+        }
+        await openActionPopup();
+        return {
+          ...result,
+          message: result.message || `已拦截下载并加入任务：${prepared.filename}`,
+        };
+      }
+
+      return result;
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "下载接管失败",
+      };
+    }
+  }
+
   async function handoffBrowserDownload(downloadItem: chrome.downloads.DownloadItem) {
     const finalUrl = downloadItem.finalUrl || downloadItem.url;
     const matchedResource =
@@ -1209,6 +1424,9 @@ export function createResourceBridge(options: {
     captureRequestResource,
     downloadPageMedia,
     handoffBrowserDownload,
+    handoffPreparedBrowserDownload,
+    prepareBrowserDownloadHandoff,
+    shouldHandoffBrowserDownload,
     handleNavigationCommitted,
     handleRequestHeaders,
     handleTabRemoved,
