@@ -36,6 +36,7 @@ const desktopBridge = createDesktopBridge();
 const resourceBridge = createResourceBridge({
   sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
   shouldBlockDownload: shouldBlockByBlacklist,
+  onTaskCreated: (message) => showTaskCreatedNotification(message),
 });
 const featureBridge = createFeatureBridge();
 const mediaBridge = createMediaBridge();
@@ -299,17 +300,30 @@ async function showTaskCreatedNotification(message?: string) {
     return;
   }
 
-  if (!chrome.notifications?.create) {
-    return;
-  }
+  const notificationPayload = {
+    type: "basic" as const,
+    iconUrl: chrome.runtime.getURL("icon128.png"),
+    title: "Ghost Downloader",
+    message: message?.trim() || "新任务已成功加入 Ghost Downloader",
+  };
 
   try {
-    await chrome.notifications.create({
-      type: "basic",
-      iconUrl: chrome.runtime.getURL("icon128.png"),
-      title: "Ghost Downloader",
-      message: message?.trim() || "新任务已成功加入 Ghost Downloader",
-    });
+    if (chrome.notifications?.create) {
+      await chrome.notifications.create(notificationPayload);
+      return;
+    }
+
+    const browserApi = (globalThis as unknown as {
+      browser?: {
+        notifications?: {
+          create?: (options: typeof notificationPayload) => Promise<string> | string;
+        };
+      };
+    }).browser;
+
+    if (browserApi?.notifications?.create) {
+      await browserApi.notifications.create(notificationPayload);
+    }
   } catch {
     // 当前浏览器或平台不支持通知时忽略，避免影响下载拦截。
   }
@@ -561,8 +575,6 @@ async function interceptBrowserDownload(
   downloadItem: chrome.downloads.DownloadItem,
   options: { eraseFromHistory?: boolean } = {},
 ) {
-  const finalUrl = String(downloadItem.finalUrl || downloadItem.url || "");
-
   if (!desktopBridge.isReady() || !resourceBridge.shouldHandoffBrowserDownload(downloadItem, interceptDownloads)) {
     return;
   }
@@ -572,28 +584,16 @@ async function interceptBrowserDownload(
     return;
   }
 
-  if (
-    shouldBlockByBlacklist({
-      url: finalUrl,
-      filename: prepared.filename || String(downloadItem.filename || ""),
-      mime: prepared.mime || "",
-      size: prepared.size > 0 ? prepared.size : undefined,
-    })
-  ) {
-    return;
-  }
-
   try {
     await cancelDownload(downloadItem.id);
-    await eraseDownloadFromHistory(downloadItem.id);
+    if (options.eraseFromHistory) {
+      await eraseDownloadFromHistory(downloadItem.id);
+    }
   } catch {
     // Ignore cancellation cleanup failures; the browser download may continue as fallback.
   }
 
-  const handoffResult = await resourceBridge.handoffPreparedBrowserDownload(prepared);
-  if (handoffResult.ok) {
-    await showTaskCreatedNotification(handoffResult.message);
-  }
+  await resourceBridge.handoffPreparedDownload(prepared);
   refreshAndBroadcastTaskState();
 }
 
