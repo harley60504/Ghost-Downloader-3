@@ -7,6 +7,7 @@ import {
   MessageBar,
   MessageBarBody,
   Select,
+  Textarea,
   makeStyles,
 } from "@fluentui/react-components";
 import {
@@ -17,7 +18,9 @@ import {
 import { useEffect, useState } from "react";
 
 import { DEFAULT_SERVER_URL, EXTENSION_VERSION, HELP_CONTENT } from "../../shared/constants";
-import type { ThemePreference } from "../../shared/types";
+import type { DesktopConnectionState, ThemePreference } from "../../shared/types";
+import { connectionLabel } from "../../shared/utils";
+import { ConnectionStatusBadge } from "./ConnectionStatusBadge";
 
 const useStyles = makeStyles({
   root: {
@@ -72,6 +75,8 @@ const useStyles = makeStyles({
 });
 
 export function SettingsPage({
+  connectionState,
+  connectionMessage,
   desktopVersion,
   token,
   serverUrl,
@@ -84,8 +89,21 @@ export function SettingsPage({
   onRefreshConnection,
   onRequestPairing,
   themePreference,
+  resolvedThemePreference,
   onThemePreferenceChange,
+
+  domainBlacklist,
+  typeBlacklist,
+  sizeBlacklistMB,
+  notifyOnTaskCreated,
+  updatingNotifyOnTaskCreated,
+  onSaveDomainBlacklist,
+  onSaveTypeBlacklist,
+  onSaveSizeBlacklist,
+  onNotifyOnTaskCreatedChange,
 }: {
+  connectionState: DesktopConnectionState;
+  connectionMessage: string;
   desktopVersion: string;
   token: string;
   serverUrl: string;
@@ -98,13 +116,29 @@ export function SettingsPage({
   onRefreshConnection: () => Promise<boolean>;
   onRequestPairing: () => Promise<boolean>;
   themePreference: ThemePreference;
+  resolvedThemePreference: Exclude<ThemePreference, "system">;
   onThemePreferenceChange: (nextPreference: ThemePreference) => void;
+
+  domainBlacklist: string;
+  typeBlacklist: string;
+  sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
+  updatingNotifyOnTaskCreated?: boolean;
+
+  onSaveDomainBlacklist: (value: string) => Promise<boolean>;
+  onSaveTypeBlacklist: (value: string) => Promise<boolean>;
+  onSaveSizeBlacklist: (value: string) => Promise<boolean>;
+  onNotifyOnTaskCreatedChange: (next: boolean) => void;
 }) {
   const styles = useStyles();
   const [tokenDraft, setTokenDraft] = useState(token);
   const [serverUrlDraft, setServerUrlDraft] = useState(serverUrl || DEFAULT_SERVER_URL);
   const [tokenDirty, setTokenDirty] = useState(false);
   const [serverDirty, setServerDirty] = useState(false);
+
+  const [domainBlacklistDraft, setDomainBlacklistDraft] = useState(domainBlacklist || "");
+  const [typeBlacklistDraft, setTypeBlacklistDraft] = useState(typeBlacklist || "");
+  const [sizeBlacklistDraft, setSizeBlacklistDraft] = useState(sizeBlacklistMB || "");
 
   useEffect(() => {
     if (!tokenDirty) {
@@ -117,6 +151,18 @@ export function SettingsPage({
       setServerUrlDraft(serverUrl || DEFAULT_SERVER_URL);
     }
   }, [serverDirty, serverUrl]);
+
+  useEffect(() => {
+    setDomainBlacklistDraft(domainBlacklist || "");
+  }, [domainBlacklist]);
+
+  useEffect(() => {
+    setTypeBlacklistDraft(typeBlacklist || "");
+  }, [typeBlacklist]);
+
+  useEffect(() => {
+    setSizeBlacklistDraft(sizeBlacklistMB || "");
+  }, [sizeBlacklistMB]);
 
   async function commitServerUrl() {
     const nextServerUrl = serverUrlDraft.trim() || DEFAULT_SERVER_URL;
@@ -159,22 +205,37 @@ export function SettingsPage({
     }
   }
 
+  async function commitDomainBlacklist() {
+    await onSaveDomainBlacklist(domainBlacklistDraft);
+  }
+
+  async function commitTypeBlacklist() {
+    await onSaveTypeBlacklist(typeBlacklistDraft);
+  }
+
+  async function commitSizeBlacklist() {
+    await onSaveSizeBlacklist(sizeBlacklistDraft);
+  }
+
   return (
     <div className={styles.root}>
       <Card appearance="filled-alternative" className={styles.card}>
         <div className={styles.header}>
           <Body1Strong>连接配置</Body1Strong>
-          <Button
-            appearance="primary"
-            disabled={requestingPairing || savingToken || savingServerUrl}
-            icon={<PlugConnectedRegular />}
-            onClick={() => void onRequestPairing()}
-          >
-            自动配对
-          </Button>
+          <div className={styles.inputRow}>
+            <ConnectionStatusBadge state={connectionState} message={connectionMessage} />
+            <Button
+              appearance="primary"
+              disabled={requestingPairing || savingToken || savingServerUrl}
+              icon={<PlugConnectedRegular />}
+              onClick={() => void onRequestPairing()}
+            >
+              自动配对
+            </Button>
+          </div>
         </div>
 
-        <Field label="本地服务地址">
+        <Field label="桌面端服务地址">
           <div className={styles.inputRow}>
             <Input
               className={styles.input}
@@ -219,13 +280,75 @@ export function SettingsPage({
                 }
               }}
             />
-            <Button disabled={savingToken} icon={<ClipboardPasteRegular />} aria-label="粘贴令牌" onClick={() => void pasteToken()} />
+            <Button
+              disabled={savingToken}
+              icon={<ClipboardPasteRegular />}
+              aria-label="粘贴令牌"
+              onClick={() => void pasteToken()}
+            />
           </div>
+        </Field>
+      </Card>
+
+      <Card appearance="filled-alternative" className={styles.card}>
+        <Body1Strong>拦截规则</Body1Strong>
+
+        <Field label="网域黑名单">
+          <Textarea
+            resize="vertical"
+            placeholder={"每行一个，例如：\ndrive.google.com\nexample.com"}
+            value={domainBlacklistDraft}
+            onBlur={() => void commitDomainBlacklist()}
+            onChange={(_event, data) => setDomainBlacklistDraft(data.value)}
+          />
+        </Field>
+
+        <Field label="类型黑名单">
+          <Textarea
+            resize="vertical"
+            placeholder={"每行一个，例如：\n.jpg\n.png\nimage/"}
+            value={typeBlacklistDraft}
+            onBlur={() => void commitTypeBlacklist()}
+            onChange={(_event, data) => setTypeBlacklistDraft(data.value)}
+          />
+        </Field>
+
+        <Field label="最小下载大小（MB）">
+          <Input
+            className={styles.input}
+            placeholder="例如：5"
+            value={sizeBlacklistDraft}
+            onBlur={() => void commitSizeBlacklist()}
+            onChange={(_event, data) => setSizeBlacklistDraft(data.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void commitSizeBlacklist();
+              }
+            }}
+          />
+        </Field>
+      </Card>
+
+      <Card appearance="filled-alternative" className={styles.card}>
+        <Body1Strong>通知设置</Body1Strong>
+
+        <Field label="加入任务时发送通知">
+          <Select
+            value={notifyOnTaskCreated ? "on" : "off"}
+            disabled={updatingNotifyOnTaskCreated}
+            onChange={(_event) => onNotifyOnTaskCreatedChange(_event.currentTarget.value === "on")}
+          >
+            <option value="on">开启</option>
+            <option value="off">关闭</option>
+          </Select>
         </Field>
       </Card>
 
       <Card appearance="filled-alternative" className={styles.statusCard}>
         <Body1Strong>服务状态</Body1Strong>
+        <MessageBar intent="info">
+          <MessageBarBody>{`连接状态：${connectionLabel(connectionState, connectionMessage)}`}</MessageBarBody>
+        </MessageBar>
         <MessageBar intent="info">
           <MessageBarBody>{`扩展版本：${EXTENSION_VERSION}`}</MessageBarBody>
         </MessageBar>

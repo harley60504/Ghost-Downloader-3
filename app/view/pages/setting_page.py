@@ -47,6 +47,7 @@ class SettingPage(ScrollArea):
         self.initCards()
         self.initLayout()
         self.connectSignalToSlot()
+        self._refreshBrowserAddressCard()
 
     def addSettingGroup(self, group: CollapsibleSettingCardGroup):
         self.vBoxLayout.insertWidget(self.vBoxLayout.count() - 1, group)
@@ -164,6 +165,33 @@ class SettingPage(ScrollArea):
             self.browserGroup,
         )
         self.browserGroup.addSettingCard(self.browserExtensionCard)
+        self.browserLanModeCard = SwitchSettingCard(
+            FluentIcon.GLOBE,
+            self.tr("啟用區域網路存取"),
+            self.tr("关闭时仅允许本机连接，开启后允许局域网设备连接"),
+            cfg.browserExtensionLanMode,
+            self.browserGroup,
+        )
+        self.browserGroup.addSettingCard(self.browserLanModeCard)
+        self.browserAddressCard = PushSettingCard(
+            self.tr("刷新"),
+            FluentIcon.LINK,
+            self.tr("服务地址"),
+            self.tr("正在读取服务地址"),
+            self.browserGroup,
+        )
+        self.browserGroup.addSettingCard(self.browserAddressCard)
+        self.browserPortCard = SpinBoxSettingCard(
+            FluentIcon.FONT_SIZE,
+            self.tr("服务端口"),
+            self.tr("浏览器扩展连接 Ghost Downloader 时使用的端口"),
+            "",
+            cfg.browserExtensionPort,
+            self.browserGroup,
+            1,
+            1,
+        )
+        self.browserGroup.addSettingCard(self.browserPortCard)
         self.raiseWindowWhenReceiveMsg = SwitchSettingCard(
             FluentIcon.CHAT,
             self.tr("收到下载信息时弹出窗口"),
@@ -356,6 +384,8 @@ class SettingPage(ScrollArea):
     def connectSignalToSlot(self):
         cfg.appRestartSig.connect(self._showRestartTooltip)
         cfg.browserExtensionPairToken.valueChanged.connect(lambda _: self._refreshBrowserPairTokenCard())
+        cfg.browserExtensionLanMode.valueChanged.connect(lambda _: self._onBrowserServerConfigChanged())
+        cfg.browserExtensionPort.valueChanged.connect(lambda _: self._onBrowserServerConfigChanged())
         self.downloadFolderCard.pathChanged.connect(lambda x: cfg.set(cfg.downloadFolder, x))
         self.browserPairTokenCard.clicked.connect(self._copyBrowserPairToken)
         self.regeneratePairTokenButton.clicked.connect(self._regenerateBrowserPairToken)
@@ -367,6 +397,7 @@ class SettingPage(ScrollArea):
             lambda: QDesktopServices.openUrl(QUrl(FEEDBACK_URL))
         )
         self.openLogButton.clicked.connect(openAppLogFolder)
+        self.browserAddressCard.clicked.connect(self._refreshBrowserAddressCard)
 
     def _showRestartTooltip(self):
         InfoBar.success(
@@ -379,6 +410,25 @@ class SettingPage(ScrollArea):
 
     def _refreshBrowserPairTokenCard(self):
         self.browserPairTokenCard.setContent(BrowserService.instance().pairToken)
+
+    def _refreshBrowserAddressCard(self):
+        service = BrowserService.instance()
+        localUrl = service.getLocalServerUrl()
+        lanUrl = service.getLanServerUrl()
+
+        if cfg.browserExtensionLanMode.value:
+            if lanUrl:
+                content = self.tr("当前模式：区网\n本机：{}\n区网：{}").format(localUrl, lanUrl)
+            else:
+                content = self.tr("当前模式：区网\n本机：{}\n区网地址获取失败").format(localUrl)
+        else:
+            content = self.tr("当前模式：仅本机\n本机：{}").format(localUrl)
+
+        self.browserAddressCard.setContent(content)
+
+    def _onBrowserServerConfigChanged(self):
+        BrowserService.instance().restartServer()
+        self._refreshBrowserAddressCard()
 
     def _copyBrowserPairToken(self):
         token = BrowserService.instance().pairToken

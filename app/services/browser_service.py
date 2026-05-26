@@ -81,8 +81,6 @@ def _int(data: dict[str, Any], key: str, default: int) -> int:
 
 class BrowserService(QObject):
     _instance: Self | None = None
-    SERVER_HOST = QHostAddress.SpecialAddress.LocalHost
-    SERVER_PORT = 14370
     PROTOCOL_VERSION = 1
 
     def __init__(self, parent=None):
@@ -115,6 +113,82 @@ class BrowserService(QObject):
         self._closeAllClients()
         return token
 
+    def restartServer(self):
+        enabled = bool(cfg.enableBrowserExtension.value)
+        self._closeAllClients()
+        if self.server.isListening():
+            self.server.close()
+
+        if enabled:
+            self._setEnabled(True)
+
+    def _getServerHostString(self) -> str:
+        return "0.0.0.0" if cfg.browserExtensionLanMode.value else "127.0.0.1"
+
+    def _getServerAddress(self) -> QHostAddress:
+        return QHostAddress(self._getServerHostString())
+
+    def _getServerPort(self) -> int:
+        return int(cfg.browserExtensionPort.value)
+
+    def getLocalServerUrl(self) -> str:
+        return f"ws://127.0.0.1:{self._getServerPort()}"
+
+    def getLanServerUrl(self) -> str:
+        from PySide6.QtNetwork import QAbstractSocket, QNetworkInterface
+
+        preferredIps = []
+        fallbackIps = []
+        skipKeywords = [
+            "virtual",
+            "vmware",
+            "hyper-v",
+            "vethernet",
+            "virtualbox",
+            "loopback",
+            "zerotier",
+            "tailscale",
+            "wireguard",
+            "vpn",
+            "bluetooth",
+        ]
+
+        for interface in QNetworkInterface.allInterfaces():
+            flags = interface.flags()
+            name = interface.humanReadableName().lower()
+            if not (flags & QNetworkInterface.InterfaceFlag.IsUp):
+                continue
+            if not (flags & QNetworkInterface.InterfaceFlag.IsRunning):
+                continue
+            if flags & QNetworkInterface.InterfaceFlag.IsLoopBack:
+                continue
+            if any(keyword in name for keyword in skipKeywords):
+                continue
+
+            for entry in interface.addressEntries():
+                ip = entry.ip()
+                if ip.protocol() != QAbstractSocket.NetworkLayerProtocol.IPv4Protocol:
+                    continue
+
+                ipStr = ip.toString()
+                if ipStr.startswith("127.") or ipStr.startswith("169.254.") or ipStr == "0.0.0.0":
+                    continue
+
+                if (
+                    ipStr.startswith("192.168.")
+                    or ipStr.startswith("10.")
+                    or (ipStr.startswith("172.") and 16 <= int(ipStr.split(".")[1]) <= 31)
+                ):
+                    preferredIps.append(ipStr)
+                else:
+                    fallbackIps.append(ipStr)
+
+        if preferredIps:
+            return f"ws://{preferredIps[0]}:{self._getServerPort()}"
+        if fallbackIps:
+            return f"ws://{fallbackIps[0]}:{self._getServerPort()}"
+        return ""
+
     @classmethod
     def initialize(cls, parent=None) -> Self:
         if cls._instance is None:
@@ -143,9 +217,9 @@ class BrowserService(QObject):
     def _setEnabled(self, enabled: bool):
         if enabled:
             if self.server.isListening():
-                return
+                self.server.close()
 
-            if self.server.listen(self.SERVER_HOST, self.SERVER_PORT):
+            if self.server.listen(self._getServerAddress(), self._getServerPort()):
                 logger.info(
                     "Browser extension server started on ws://{}:{}",
                     self.server.serverAddress().toString(),

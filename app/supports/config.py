@@ -254,6 +254,12 @@ class Config(QConfig):
     enableRaiseWindowWhenReceiveMsg = ConfigItem(
         "Browser", "EnableRaiseWindowWhenReceiveMsg", False, BoolValidator()
     )
+    browserExtensionLanMode = ConfigItem(
+        "Browser", "BrowserExtensionLanMode", False, BoolValidator()
+    )
+    browserExtensionPort = RangeConfigItem(
+        "Browser", "BrowserExtensionPort", 14370, RangeValidator(1, 65535)
+    )
 
     # 个性化设置
     if sys.platform == "win32":

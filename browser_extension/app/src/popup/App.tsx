@@ -27,9 +27,11 @@ const useStyles = makeStyles({
 
 export function App({
   themePreference,
+  resolvedThemePreference,
   onThemePreferenceChange,
 }: {
   themePreference: ThemePreference;
+  resolvedThemePreference: Exclude<ThemePreference, "system">;
   onThemePreferenceChange: (nextPreference: ThemePreference) => void;
 }) {
   const styles = useStyles();
@@ -79,16 +81,22 @@ export function App({
             featureStates={bridge.featureStates}
             isFeatureBusy={bridge.isFeatureBusy}
             onFeatureToggle={(feature) => void bridge.toggleFeature(feature)}
+            mediaTabs={bridge.mediaTabs}
             mediaItems={bridge.mediaItems}
+            selectedMediaTabId={bridge.selectedMediaTabId}
+            selectedMediaIndex={bridge.selectedMediaIndex}
             mediaPlaybackState={bridge.mediaPlaybackState}
             mediaBusy={bridge.isUpdatingMedia}
-            onMediaItemChange={(index) => void bridge.setMediaIndex(index)}
+            onMediaTabChange={(tabId) => void bridge.setMediaTarget(tabId, -1)}
+            onMediaItemChange={(index) => void bridge.setMediaTarget(bridge.selectedMediaTabId, index)}
             onMediaAction={(action, value) => void bridge.performMediaAction(action, value)}
           />
         ) : null}
 
         {currentView === "settings" ? (
           <SettingsPage
+            connectionState={bridge.connectionState}
+            connectionMessage={bridge.connectionMessage}
             desktopVersion={bridge.desktopVersion}
             token={bridge.token}
             serverUrl={bridge.serverUrl}
@@ -101,7 +109,17 @@ export function App({
             onRefreshConnection={bridge.refreshConnection}
             onRequestPairing={bridge.requestPairing}
             themePreference={themePreference}
+            resolvedThemePreference={resolvedThemePreference}
             onThemePreferenceChange={onThemePreferenceChange}
+            domainBlacklist={bridge.domainBlacklist}
+            typeBlacklist={bridge.typeBlacklist}
+            sizeBlacklistMB={bridge.sizeBlacklistMB}
+            onSaveDomainBlacklist={bridge.saveDomainBlacklist}
+            onSaveTypeBlacklist={bridge.saveTypeBlacklist}
+            onSaveSizeBlacklist={bridge.saveSizeBlacklist}
+            notifyOnTaskCreated={bridge.notifyOnTaskCreated}
+            updatingNotifyOnTaskCreated={bridge.isUpdatingNotifyOnTaskCreated}
+            onNotifyOnTaskCreatedChange={(next) => void bridge.setNotifyOnTaskCreated(next)}
           />
         ) : null}
       </main>

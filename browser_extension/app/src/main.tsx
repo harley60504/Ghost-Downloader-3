@@ -7,12 +7,13 @@ import { useThemePreference } from "./popup/hooks/useThemePreference";
 import "./index.css";
 
 function PopupRoot() {
-  const { theme, themePreference, setThemePreference } = useThemePreference();
+  const { theme, themePreference, resolvedThemePreference, setThemePreference } = useThemePreference();
 
   return (
     <FluentProvider className="gd4b-provider" theme={theme}>
       <App
         themePreference={themePreference}
+        resolvedThemePreference={resolvedThemePreference}
         onThemePreferenceChange={(nextPreference) => void setThemePreference(nextPreference)}
       />
     </FluentProvider>

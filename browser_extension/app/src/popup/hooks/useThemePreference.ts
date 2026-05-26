@@ -63,6 +63,7 @@ export function useThemePreference() {
 
   return {
     themePreference,
+    resolvedThemePreference,
     setThemePreference,
     theme,
   };

@@ -16,6 +16,36 @@ from app.supports.sysio import ftruncate, pwrite
 from app.supports.utils import splitCookies
 
 
+def _parsePositiveContentLength(headers: dict[str, str]) -> int:
+    value = headers.get("content-length", "").strip()
+    if not value:
+        return SpecialFileSize.UNKNOWN
+
+    try:
+        length = int(value)
+    except ValueError:
+        return SpecialFileSize.UNKNOWN
+
+    return length if length > 0 else SpecialFileSize.UNKNOWN
+
+
+def _parseContentRangeTotal(headers: dict[str, str]) -> int:
+    contentRange = headers.get("content-range", "").strip()
+    if not contentRange or "/" not in contentRange:
+        return SpecialFileSize.UNKNOWN
+
+    _, _, total = contentRange.rpartition("/")
+    if not total or total == "*":
+        return SpecialFileSize.UNKNOWN
+
+    try:
+        size = int(total)
+    except ValueError:
+        return SpecialFileSize.UNKNOWN
+
+    return size if size > 0 else SpecialFileSize.UNKNOWN
+
+
 @dataclass(kw_only=True)
 class HttpTaskStage(TaskStage):
     workerType: type = field(init=False, repr=False)
@@ -51,6 +81,25 @@ class HttpWorker(Worker):
         self.speedHistory = []
         self.accelCheckTime = 0
         self.requestHeaders, self.requestCookies = splitCookies(stage.headers)
+
+    def _updateFileSizeFromResponse(self, res):
+        if self.stage.fileSize not in {SpecialFileSize.UNKNOWN, 0}:
+            return
+
+        headers = {str(k).lower(): str(v) for k, v in res.headers.items()}
+        fileSize = _parseContentRangeTotal(headers)
+        if fileSize == SpecialFileSize.UNKNOWN:
+            fileSize = _parsePositiveContentLength(headers)
+
+        if fileSize in {SpecialFileSize.UNKNOWN, 0}:
+            return
+
+        self.stage.fileSize = fileSize
+        task = getattr(self.stage, "_task", None)
+        if task is not None:
+            task.fileSize = fileSize
+
+        logger.info("{} runtime updated file size: {}", self.stage.outputFile, fileSize)
 
     def reassignSubworker(self):
         if self.stage.fileSize <= 0:
@@ -92,6 +141,8 @@ class HttpWorker(Worker):
                         if res.status_code != 206:
                             raise Exception(f"服务器拒绝了范围请求，状态码：{res.status_code}")
 
+                        self._updateFileSizeFromResponse(res)
+
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
@@ -132,6 +183,8 @@ class HttpWorker(Worker):
                         if res.status_code != 200:
                             raise Exception(f"服务器返回了异常状态码：{res.status_code}")
 
+                        self._updateFileSizeFromResponse(res)
+
                         async for chunk in await res.iter_content(chunk_size=65536):
                             if not chunk:
                                 continue
@@ -167,6 +220,8 @@ class HttpWorker(Worker):
                         res.raise_for_status()
                         if res.status_code != 206:
                             raise Exception(f"服务器拒绝了范围请求，状态码：{res.status_code}")
+
+                        self._updateFileSizeFromResponse(res)
 
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
