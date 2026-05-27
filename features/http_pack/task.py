@@ -88,7 +88,7 @@ class HttpWorker(Worker):
 
         headers = {str(k).lower(): str(v) for k, v in res.headers.items()}
         fileSize = _parseContentRangeTotal(headers)
-        if fileSize == SpecialFileSize.UNKNOWN:
+        if fileSize == SpecialFileSize.UNKNOWN and res.status_code != 206:
             fileSize = _parsePositiveContentLength(headers)
 
         if fileSize in {SpecialFileSize.UNKNOWN, 0}:
@@ -100,6 +100,13 @@ class HttpWorker(Worker):
             task.fileSize = fileSize
 
         logger.info("{} runtime updated file size: {}", self.stage.outputFile, fileSize)
+
+    def _knownRemainingBytes(self, subworker: HttpSubworker) -> int | None:
+        if self.stage.fileSize <= 0:
+            return None
+
+        remainingBytes = self.stage.fileSize - subworker.progress
+        return max(0, remainingBytes)
 
     def reassignSubworker(self):
         if self.stage.fileSize <= 0:
@@ -146,11 +153,18 @@ class HttpWorker(Worker):
                         async for chunk in await res.iter_raw(chunk_size=65536):
                             if not chunk:
                                 continue
+                            remainingBytes = self._knownRemainingBytes(subworker)
+                            if remainingBytes == 0:
+                                break
+                            if remainingBytes is not None and len(chunk) > remainingBytes:
+                                chunk = chunk[:remainingBytes]
                             await cfg.checkSpeedLimitation()
                             pwrite(self.fileHandle, chunk, subworker.progress)
                             chunkSize = len(chunk)
                             subworker.progress += chunkSize
                             cfg.globalSpeed += chunkSize
+                            if self.stage.fileSize > 0 and subworker.progress >= self.stage.fileSize:
+                                break
                     finally:
                         await res.close()
 
@@ -188,11 +202,18 @@ class HttpWorker(Worker):
                         async for chunk in await res.iter_content(chunk_size=65536):
                             if not chunk:
                                 continue
+                            remainingBytes = self._knownRemainingBytes(subworker)
+                            if remainingBytes == 0:
+                                break
+                            if remainingBytes is not None and len(chunk) > remainingBytes:
+                                chunk = chunk[:remainingBytes]
                             await cfg.checkSpeedLimitation()
                             pwrite(self.fileHandle, chunk, subworker.progress)
                             chunkSize = len(chunk)
                             subworker.progress += chunkSize
                             cfg.globalSpeed += chunkSize
+                            if self.stage.fileSize > 0 and subworker.progress >= self.stage.fileSize:
+                                break
                     finally:
                         await res.close()
 
@@ -315,7 +336,7 @@ class HttpWorker(Worker):
                 self.stage.speed = receivedBytes - self.stage.receivedBytes
                 self.stage.receivedBytes = receivedBytes
                 if self.stage.fileSize > 0:
-                    self.stage.progress = (receivedBytes / self.stage.fileSize) * 100
+                    self.stage.progress = min(100, (receivedBytes / self.stage.fileSize) * 100)
                 else:
                     self.stage.progress = 0
 

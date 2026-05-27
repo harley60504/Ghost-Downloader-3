@@ -11,7 +11,7 @@ from app.bases.models import Task, SpecialFileSize
 from app.supports.config import DEFAULT_HEADERS, cfg
 from app.supports.utils import getProxies, toExecutable, toPosixPath, toSafeFilename
 from .config import ffmpegConfig, ffmpegPaths
-from .task import FFmpegStage
+from .task import FFmpegMergeSourceStage, FFmpegMergeStage
 
 if TYPE_CHECKING:
     from features.http_pack.task import HttpTaskStage
@@ -153,20 +153,50 @@ async def createMergeTask(payload: dict[str, Any]) -> Task:
 
     videoTask = parsedResources[0][1]
     audioTask = parsedResources[1][1]
-    videoStage: HttpTaskStage = videoTask.stages[0]
-    audioStage: HttpTaskStage = audioTask.stages[0]
+    parsedVideoStage: HttpTaskStage = videoTask.stages[0]
+    parsedAudioStage: HttpTaskStage = audioTask.stages[0]
 
-    videoExt = _resourceExtension(videoTask.title, videoStage.url)
-    audioExt = _resourceExtension(audioTask.title, audioStage.url)
+    videoExt = _resourceExtension(videoTask.title, parsedVideoStage.url)
+    audioExt = _resourceExtension(audioTask.title, parsedAudioStage.url)
     path = Path(payload.get("path", cfg.downloadFolder.value))
     finalPath = path / outputTitle
-    videoPath = finalPath.with_name(f"{finalPath.stem}.video{f'.{videoExt}' if videoExt else ''}")
-    audioPath = finalPath.with_name(f"{finalPath.stem}.audio{f'.{audioExt}' if audioExt else ''}")
-
-    videoStage.stageIndex = 1
-    videoStage.outputFile = str(videoPath)
-    audioStage.stageIndex = 2
-    audioStage.outputFile = str(audioPath)
+    videoStage = FFmpegMergeSourceStage(
+        stageIndex=1,
+        url=parsedVideoStage.url,
+        fileSize=parsedVideoStage.fileSize,
+        headers=parsedVideoStage.headers,
+        proxies=parsedVideoStage.proxies,
+        outputFile="",
+        blockNum=parsedVideoStage.blockNum,
+        supportsRange=parsedVideoStage.supportsRange,
+        accelerated=parsedVideoStage.accelerated,
+        mergeKind="video",
+        mergeExtension=videoExt,
+    )
+    audioStage = FFmpegMergeSourceStage(
+        stageIndex=2,
+        url=parsedAudioStage.url,
+        fileSize=parsedAudioStage.fileSize,
+        headers=parsedAudioStage.headers,
+        proxies=parsedAudioStage.proxies,
+        outputFile="",
+        blockNum=parsedAudioStage.blockNum,
+        supportsRange=parsedAudioStage.supportsRange,
+        accelerated=parsedAudioStage.accelerated,
+        mergeKind="audio",
+        mergeExtension=audioExt,
+    )
+    mergeStage = FFmpegMergeStage(
+        stageIndex=3,
+        videoPath="",
+        audioPath="",
+        outputFile="",
+        videoExtension=videoExt,
+        audioExtension=audioExt,
+    )
+    videoStage.updateOutputFile(path, outputTitle)
+    audioStage.updateOutputFile(path, outputTitle)
+    mergeStage.updateOutputFile(path, outputTitle)
 
     task = Task(
         title=outputTitle,
@@ -183,12 +213,7 @@ async def createMergeTask(payload: dict[str, Any]) -> Task:
     )
     task.addStage(videoStage)
     task.addStage(audioStage)
-    task.addStage(FFmpegStage(
-        stageIndex=3,
-        videoPath=str(videoPath),
-        audioPath=str(audioPath),
-        outputFile=str(finalPath),
-    ))
+    task.addStage(mergeStage)
     return task
 
 

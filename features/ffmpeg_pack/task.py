@@ -1,4 +1,6 @@
 import asyncio
+import os
+import shutil
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,6 +10,22 @@ from loguru import logger
 from app.bases.interfaces import Worker
 from app.bases.models import TaskStage, TaskStatus
 from .config import ffmpegPaths
+
+try:
+    from features.http_pack.task import HttpTaskStage, HttpWorker
+except ImportError:
+    from http_pack.task import HttpTaskStage, HttpWorker
+
+
+@dataclass(kw_only=True)
+class FFmpegMergeSourceStage(HttpTaskStage):
+    mergeKind: str
+    mergeExtension: str = ""
+
+    def updateOutputFile(self, taskPath: Path, taskTitle: str):
+        stem = Path(taskTitle).stem
+        suffix = f".{self.mergeExtension}" if self.mergeExtension else ""
+        self.outputFile = str(taskPath / f"{stem}.{self.mergeKind}{suffix}")
 
 
 @dataclass(kw_only=True)
@@ -24,6 +42,20 @@ class FFmpegStage(TaskStage):
         pass
 
 
+@dataclass(kw_only=True)
+class FFmpegMergeStage(FFmpegStage):
+    videoExtension: str = ""
+    audioExtension: str = ""
+
+    def updateOutputFile(self, taskPath: Path, taskTitle: str):
+        stem = Path(taskTitle).stem
+        videoSuffix = f".{self.videoExtension}" if self.videoExtension else ""
+        audioSuffix = f".{self.audioExtension}" if self.audioExtension else ""
+        self.outputFile = str(taskPath / f"{stem}.mp4")
+        self.videoPath = str(taskPath / f"{stem}.video{videoSuffix}")
+        self.audioPath = str(taskPath / f"{stem}.audio{audioSuffix}")
+
+
 class FFmpegWorker(Worker):
     def __init__(self, stage: FFmpegStage):
         super().__init__(stage)
@@ -37,7 +69,7 @@ class FFmpegWorker(Worker):
             return 0.0
         return duration if duration > 0 else 0.0
 
-    async def _fetchDuration(self, ffprobe: str, path: str) -> float:
+    async def _fetchDuration(self, ffprobe: str, path: str, cwd: Path | None = None) -> float:
         process = await asyncio.create_subprocess_exec(
             ffprobe,
             "-v", "error",
@@ -47,6 +79,7 @@ class FFmpegWorker(Worker):
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
         )
         stdout, stderr = await process.communicate()
 
@@ -78,6 +111,40 @@ class FFmpegWorker(Worker):
             elif line == "progress=end":
                 self.stage.progress = 100
 
+    def _asciiWorkDir(self, outputFile: Path) -> Path:
+        return outputFile.parent / f".gd3_ffmpeg_ascii_{self.stage.stageId}"
+
+    @staticmethod
+    def _linkOrCopy(source: Path, target: Path):
+        if target.exists() or target.is_symlink():
+            target.unlink()
+
+        if not source.is_file():
+            raise FileNotFoundError(f"FFmpeg source file not found: {source}")
+
+        try:
+            os.link(source, target)
+        except OSError:
+            shutil.copy2(source, target)
+
+    def _prepareAsciiWorkspace(self, workDir: Path) -> tuple[Path, Path, Path]:
+        if workDir.exists():
+            shutil.rmtree(workDir)
+        workDir.mkdir(parents=True, exist_ok=True)
+
+        videoPath = workDir / "video.m4s"
+        audioPath = workDir / "audio.m4s"
+        outputPath = workDir / "output.mp4"
+        self._linkOrCopy(Path(self.stage.videoPath), videoPath)
+        self._linkOrCopy(Path(self.stage.audioPath), audioPath)
+        return videoPath, audioPath, outputPath
+
+    @staticmethod
+    async def _killProcess(process):
+        if process is not None and process.returncode is None:
+            process.kill()
+            await process.wait()
+
     async def run(self):
         ffmpeg, ffprobe = ffmpegPaths()
         if not ffmpeg or not ffprobe:
@@ -85,24 +152,27 @@ class FFmpegWorker(Worker):
 
         outputFile = Path(self.stage.outputFile)
         outputFile.parent.mkdir(parents=True, exist_ok=True)
+        workDir = self._asciiWorkDir(outputFile)
 
         process = None
         progressTask = None
         try:
+            videoPath, audioPath, tempOutputFile = self._prepareAsciiWorkspace(workDir)
             self.stage.progress = 0
             self.stage.speed = 0
             self.stage.receivedBytes = 0
-            totalDuration = await self._fetchDuration(ffprobe, self.stage.videoPath)
+            totalDuration = await self._fetchDuration(ffprobe, videoPath.name, workDir)
             process = await asyncio.create_subprocess_exec(
                 ffmpeg,
                 "-y", "-v", "error", "-nostats", "-progress", "pipe:1",
-                "-i", self.stage.videoPath,
-                "-i", self.stage.audioPath,
+                "-i", videoPath.name,
+                "-i", audioPath.name,
                 "-c", "copy",
-                self.stage.outputFile,
+                tempOutputFile.name,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=workDir,
             )
             progressTask = asyncio.create_task(self._readProgress(process.stdout, totalDuration))
 
@@ -116,22 +186,29 @@ class FFmpegWorker(Worker):
                     raise RuntimeError(f"ffmpeg 退出码异常: {process.returncode}, {stderrOutput}")
                 raise RuntimeError(f"ffmpeg 退出码异常: {process.returncode}")
 
+            os.replace(tempOutputFile, outputFile)
             self.stage.setStatus(TaskStatus.COMPLETED)
             if self.stage.cleanupSource:
                 self._cleanupSourceFiles()
         except asyncio.CancelledError:
             self.stage.setStatus(TaskStatus.PAUSED)
-            if process is not None and process.returncode is None:
-                process.kill()
-                await process.wait()
+            await self._killProcess(process)
             if progressTask is not None and not progressTask.done():
                 progressTask.cancel()
                 with suppress(asyncio.CancelledError):
                     await progressTask
             raise
         except Exception as e:
+            await self._killProcess(process)
             self.stage.setError(e)
             raise
+        finally:
+            if progressTask is not None and not progressTask.done():
+                progressTask.cancel()
+                with suppress(asyncio.CancelledError):
+                    await progressTask
+            with suppress(Exception):
+                shutil.rmtree(workDir)
 
     def _cleanupSourceFiles(self):
         for rawPath in (self.stage.videoPath, self.stage.audioPath):
@@ -147,3 +224,5 @@ class FFmpegWorker(Worker):
 
 
 FFmpegStage.workerType = FFmpegWorker
+FFmpegMergeStage.workerType = FFmpegWorker
+FFmpegMergeSourceStage.workerType = HttpWorker
