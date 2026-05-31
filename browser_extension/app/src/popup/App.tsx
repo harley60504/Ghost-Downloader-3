@@ -102,6 +102,15 @@ export function App({
             onRequestPairing={bridge.requestPairing}
             themePreference={themePreference}
             onThemePreferenceChange={onThemePreferenceChange}
+            domainBlacklist={bridge.domainBlacklist}
+            typeBlacklist={bridge.typeBlacklist}
+            sizeBlacklistMB={bridge.sizeBlacklistMB}
+            notifyOnTaskCreated={bridge.notifyOnTaskCreated}
+            updatingNotifyOnTaskCreated={bridge.isUpdatingNotifyOnTaskCreated}
+            onSaveDomainBlacklist={bridge.saveDomainBlacklist}
+            onSaveTypeBlacklist={bridge.saveTypeBlacklist}
+            onSaveSizeBlacklist={bridge.saveSizeBlacklist}
+            onNotifyOnTaskCreatedChange={(next) => void bridge.setNotifyOnTaskCreated(next)}
           />
         ) : null}
       </main>

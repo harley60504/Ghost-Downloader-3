@@ -56,6 +56,14 @@ type NetworkResponseMeta = {
 };
 
 type DesktopRequestSender = <T extends DesktopRequestResult>(payload: Record<string, unknown>) => Promise<T>;
+type DownloadBlockInput = {
+  url: string;
+  filename?: string;
+  mime?: string;
+  size?: number;
+};
+type DownloadBlockPredicate = (input: DownloadBlockInput) => boolean;
+type TaskCreatedCallback = (message?: string) => Promise<void> | void;
 type ResourceBucket = Map<string, CapturedResource>;
 
 const HEADER_WHITELIST = new Set([
@@ -104,6 +112,8 @@ const MIME_EXTENSIONS: Record<string, string> = {
 
 export function createResourceBridge(options: {
   sendDesktopRequest: DesktopRequestSender;
+  shouldBlockDownload?: DownloadBlockPredicate;
+  onTaskCreated?: TaskCreatedCallback;
 }) {
   let bridgePersistTimer: number | null = null;
   let restoredFromStorage = false;
@@ -227,12 +237,27 @@ export function createResourceBridge(options: {
     if (!isCapturableUrl(details.url)) {
       return false;
     }
+    if (options.shouldBlockDownload?.({
+      url: details.url,
+      filename: meta.filename || filenameFromUrl(details.url),
+      mime: meta.mime || mimeFromUrl(details.url),
+      size: meta.size > 0 ? meta.size : undefined,
+    })) {
+      return false;
+    }
     const extension = fileExtension(meta.filename || filenameFromUrl(details.url));
     return details.type === "media" || isCatCatchMedia(extension, meta.mime);
   }
 
   function shouldCaptureRequestResource(details: chrome.webRequest.OnSendHeadersDetails): boolean {
     if (!isCapturableUrl(details.url)) {
+      return false;
+    }
+    if (options.shouldBlockDownload?.({
+      url: details.url,
+      filename: filenameFromUrl(details.url),
+      mime: mimeFromUrl(details.url),
+    })) {
       return false;
     }
     return details.type === "media" || isCatCatchMedia(fileExtension(filenameFromUrl(details.url)), mimeFromUrl(details.url));
@@ -800,6 +825,19 @@ export function createResourceBridge(options: {
     if (downloadItem.referrer && !headers.referer) {
       headers.referer = downloadItem.referrer;
     }
+    const size =
+      typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
+        ? downloadItem.totalBytes
+        : matchedResource?.size ?? 0;
+
+    if (options.shouldBlockDownload?.({
+      url: finalUrl,
+      filename: resolvedFilename,
+      mime: matchedResource?.mime || mimeFromUrl(finalUrl),
+      size: size > 0 ? size : undefined,
+    })) {
+      return;
+    }
 
     try {
       const result = await options.sendDesktopRequest<DesktopRequestResult>({
@@ -810,10 +848,7 @@ export function createResourceBridge(options: {
           url: finalUrl,
           headers,
           filename: resolvedFilename,
-          size:
-            typeof downloadItem.totalBytes === "number" && downloadItem.totalBytes > 0
-              ? downloadItem.totalBytes
-              : matchedResource?.size ?? 0,
+          size,
           supportsRange: Boolean(
             matchedResource?.supportsRange
             || headerSnapshot?.supportsRange
@@ -822,6 +857,7 @@ export function createResourceBridge(options: {
         },
       });
       if (result.ok) {
+        await options.onTaskCreated?.(result.message || `已拦截下载并加入任务：${resolvedFilename}`);
         await openActionPopup();
       }
     } catch {

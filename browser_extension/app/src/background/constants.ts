@@ -12,6 +12,10 @@ export const PAIR_TOKEN_KEY = "pairToken";
 export const SERVER_URL_KEY = "desktopServerUrl";
 export const INTERCEPT_DOWNLOADS_KEY = "interceptDownloads";
 export const MEDIA_DOWNLOAD_OVERLAY_KEY = "mediaDownloadOverlayEnabled";
+export const DOMAIN_BLACKLIST_KEY = "domainBlacklist";
+export const TYPE_BLACKLIST_KEY = "typeBlacklist";
+export const SIZE_BLACKLIST_KEY = "sizeBlacklistMB";
+export const NOTIFY_ON_TASK_CREATED_KEY = "notifyOnTaskCreated";
 export const FEATURE_TAB_STATE_KEY = "featureTabState";
 
 export const BRIDGE_RESOURCE_CACHE_KEY = "bridgeResourceCacheByTab";

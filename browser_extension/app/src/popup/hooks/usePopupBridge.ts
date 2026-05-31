@@ -75,8 +75,12 @@ function createEmptyPayload(): PopupStatePayload {
     tabId: null,
     activePageDomain: "",
     featureStates: createEmptyFeatureStates(),
-    mediaItems: [],
-    mediaPlaybackState: createEmptyMediaState(),
+  mediaItems: [],
+  mediaPlaybackState: createEmptyMediaState(),
+  domainBlacklist: "",
+  typeBlacklist: "",
+  sizeBlacklistMB: "",
+  notifyOnTaskCreated: true,
   };
 }
 
@@ -164,6 +168,7 @@ export function usePopupBridge(activeView: PopupView) {
   const [isUpdatingIntercept, setIsUpdatingIntercept] = useState(false);
   const [isUpdatingMediaDownloadOverlay, setIsUpdatingMediaDownloadOverlay] = useState(false);
   const [isUpdatingMedia, setIsUpdatingMedia] = useState(false);
+  const [isUpdatingNotifyOnTaskCreated, setIsUpdatingNotifyOnTaskCreated] = useState(false);
 
   const mountedRef = useRef(true);
   const flashTimerRef = useRef<number | null>(null);
@@ -403,6 +408,90 @@ export function usePopupBridge(activeView: PopupView) {
     [applyPopupState, requestPopupState, setFlash],
   );
 
+  const saveDomainBlacklist = useCallback(
+    async (value: string) => {
+      try {
+        const result = await sendRuntimeMessage<DesktopRequestResult>({
+          type: "popup_set_domain_blacklist",
+          value,
+        });
+        if (!result.ok) {
+          throw new Error(result.message || "保存网域黑名单失败");
+        }
+        setPayload((current) => ({ ...current, domainBlacklist: value }));
+        setFlash("网域黑名单已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(errorMessageOr(error, "保存网域黑名单失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
+  );
+
+  const saveTypeBlacklist = useCallback(
+    async (value: string) => {
+      try {
+        const result = await sendRuntimeMessage<DesktopRequestResult>({
+          type: "popup_set_type_blacklist",
+          value,
+        });
+        if (!result.ok) {
+          throw new Error(result.message || "保存类型黑名单失败");
+        }
+        setPayload((current) => ({ ...current, typeBlacklist: value }));
+        setFlash("类型黑名单已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(errorMessageOr(error, "保存类型黑名单失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
+  );
+
+  const saveSizeBlacklist = useCallback(
+    async (value: string) => {
+      const normalized = value.trim();
+      try {
+        const result = await sendRuntimeMessage<DesktopRequestResult>({
+          type: "popup_set_size_blacklist",
+          value: normalized,
+        });
+        if (!result.ok) {
+          throw new Error(result.message || "保存大小门槛失败");
+        }
+        setPayload((current) => ({ ...current, sizeBlacklistMB: normalized }));
+        setFlash("大小门槛已保存", "success");
+        return true;
+      } catch (error) {
+        setFlash(errorMessageOr(error, "保存大小门槛失败"), "error");
+        return false;
+      }
+    },
+    [setFlash],
+  );
+
+  const setNotifyOnTaskCreated = useCallback(
+    async (enabled: boolean) => {
+      setIsUpdatingNotifyOnTaskCreated(true);
+      try {
+        const next = await requestPopupState({
+          type: "popup_set_notify_on_task_created",
+          enabled,
+        });
+        applyPopupState(next);
+      } catch (error) {
+        setFlash(errorMessageOr(error, "更新任务通知设置失败"), "error");
+      } finally {
+        if (mountedRef.current) {
+          setIsUpdatingNotifyOnTaskCreated(false);
+        }
+      }
+    },
+    [applyPopupState, requestPopupState, setFlash],
+  );
+
   const performTaskAction = useCallback(
     async (taskId: string, action: TaskAction) => {
       updateBusyState(setBusyTaskIds, taskId, true);
@@ -601,6 +690,7 @@ export function usePopupBridge(activeView: PopupView) {
     isUpdatingIntercept,
     isUpdatingMediaDownloadOverlay,
     isUpdatingMedia,
+    isUpdatingNotifyOnTaskCreated,
     saveToken,
     saveServerUrl,
     refreshConnection,
@@ -613,6 +703,10 @@ export function usePopupBridge(activeView: PopupView) {
     toggleFeature,
     setMediaIndex,
     performMediaAction,
+    saveDomainBlacklist,
+    saveTypeBlacklist,
+    saveSizeBlacklist,
+    setNotifyOnTaskCreated,
     sortedTasks,
     isTaskBusy: (taskId: string) => busyTaskIds.has(taskId),
     isResourceBusy: (resourceId: string) => busyResourceIds.has(resourceId),

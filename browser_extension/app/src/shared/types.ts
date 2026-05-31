@@ -108,6 +108,10 @@ export interface PopupStatePayload {
   featureStates: FeatureStateMap;
   mediaItems: MediaItemOption[];
   mediaPlaybackState: MediaPlaybackState;
+  domainBlacklist: string;
+  typeBlacklist: string;
+  sizeBlacklistMB: string;
+  notifyOnTaskCreated: boolean;
 }
 
 export interface DesktopRequestResult {

@@ -9,7 +9,14 @@ import {createDesktopBridge} from "./background/desktop-bridge";
 import {createFeatureBridge} from "./background/feature-bridge";
 import {createMediaBridge} from "./background/media-bridge";
 import {createResourceBridge} from "./background/resource-bridge";
-import {INTERCEPT_DOWNLOADS_KEY, MEDIA_DOWNLOAD_OVERLAY_KEY,} from "./background/constants";
+import {
+  DOMAIN_BLACKLIST_KEY,
+  INTERCEPT_DOWNLOADS_KEY,
+  MEDIA_DOWNLOAD_OVERLAY_KEY,
+  NOTIFY_ON_TASK_CREATED_KEY,
+  SIZE_BLACKLIST_KEY,
+  TYPE_BLACKLIST_KEY,
+} from "./background/constants";
 import {
     cancelDownload,
     eraseDownloadFromHistory,
@@ -23,12 +30,123 @@ import {onSendHeadersExtraInfoSpec, supportsDownloadDeterminingFilename,} from "
 const desktopBridge = createDesktopBridge();
 const resourceBridge = createResourceBridge({
   sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
+  shouldBlockDownload: shouldBlockByBlacklist,
+  onTaskCreated: (message) => showTaskCreatedNotification(message),
 });
 const featureBridge = createFeatureBridge();
 const mediaBridge = createMediaBridge();
 
 let interceptDownloads = true;
 let mediaDownloadOverlayEnabled = true;
+let domainBlacklist: string[] = [];
+let typeBlacklist: string[] = [];
+let sizeBlacklistMB = "";
+let notifyOnTaskCreated = true;
+
+function parseRuleLines(value: string): string[] {
+  return String(value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isDomainBlacklisted(rawUrl: string): boolean {
+  try {
+    const hostname = new URL(rawUrl).hostname.toLowerCase();
+    return domainBlacklist.some((rule) => hostname === rule || hostname.endsWith(`.${rule}`));
+  } catch {
+    return false;
+  }
+}
+
+function isTypeBlacklistedByMeta(filename: string, mime: string, rawUrl: string): boolean {
+  const normalizedUrl = String(rawUrl ?? "").toLowerCase();
+  const normalizedFilename = String(filename ?? "").toLowerCase();
+  const normalizedMime = String(mime ?? "").toLowerCase();
+
+  return typeBlacklist.some((rule) => {
+    if (rule.startsWith(".")) {
+      return normalizedUrl.includes(rule) || normalizedFilename.endsWith(rule);
+    }
+    return (
+      normalizedUrl.includes(rule)
+      || normalizedFilename.includes(rule)
+      || normalizedMime.includes(rule)
+    );
+  });
+}
+
+function parseSizeRuleToBytes(value: string): number {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) {
+    return 0;
+  }
+
+  const match = raw.match(/^\s*(?:<|<=)?\s*(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?\s*$/i);
+  if (!match) {
+    return 0;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return 0;
+  }
+
+  const unit = (match[2] || "mb").toLowerCase();
+  if (unit === "b") {
+    return amount;
+  }
+  if (unit === "kb" || unit === "kib") {
+    return amount * 1024;
+  }
+  if (unit === "gb" || unit === "gib") {
+    return amount * 1024 * 1024 * 1024;
+  }
+  return amount * 1024 * 1024;
+}
+
+function isSizeBlacklistedByValue(sizeBytes: number): boolean {
+  const thresholdBytes = parseSizeRuleToBytes(sizeBlacklistMB);
+  if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0) {
+    return false;
+  }
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return false;
+  }
+  return sizeBytes < thresholdBytes;
+}
+
+function shouldBlockByBlacklist(input: {
+  url: string;
+  filename?: string;
+  mime?: string;
+  size?: number;
+}): boolean {
+  if (isDomainBlacklisted(input.url)) {
+    return true;
+  }
+  if (isTypeBlacklistedByMeta(input.filename ?? "", input.mime ?? "", input.url)) {
+    return true;
+  }
+  return typeof input.size === "number" && isSizeBlacklistedByValue(input.size);
+}
+
+async function showTaskCreatedNotification(message?: string) {
+  if (!notifyOnTaskCreated) {
+    return;
+  }
+
+  try {
+    await chrome.notifications.create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icon128.png"),
+      title: "Ghost Downloader",
+      message: message?.trim() || "新任务已成功加入 Ghost Downloader",
+    });
+  } catch {
+    // Notifications are best-effort across browsers and platforms.
+  }
+}
 
 async function injectMediaDownloadOverlay(tabId: number) {
   if (!mediaDownloadOverlayEnabled) {
@@ -106,6 +224,10 @@ async function buildPopupState(options: {
     featureStates: featureBridge.createFeatureStateMap(resolvedTabId),
     mediaItems: mediaPanelState.mediaItems,
     mediaPlaybackState: mediaPanelState.playbackState,
+    domainBlacklist: domainBlacklist.join("\n"),
+    typeBlacklist: typeBlacklist.join("\n"),
+    sizeBlacklistMB,
+    notifyOnTaskCreated,
     ...resourceState,
   };
 }
@@ -114,13 +236,25 @@ async function initialize() {
   const localState = await loadFromLocalStorage<{
     [INTERCEPT_DOWNLOADS_KEY]: boolean;
     [MEDIA_DOWNLOAD_OVERLAY_KEY]: boolean;
+    [DOMAIN_BLACKLIST_KEY]: string;
+    [TYPE_BLACKLIST_KEY]: string;
+    [SIZE_BLACKLIST_KEY]: string;
+    [NOTIFY_ON_TASK_CREATED_KEY]: boolean;
   }>({
     [INTERCEPT_DOWNLOADS_KEY]: true,
     [MEDIA_DOWNLOAD_OVERLAY_KEY]: true,
+    [DOMAIN_BLACKLIST_KEY]: "",
+    [TYPE_BLACKLIST_KEY]: "",
+    [SIZE_BLACKLIST_KEY]: "",
+    [NOTIFY_ON_TASK_CREATED_KEY]: true,
   });
 
   interceptDownloads = Boolean(localState[INTERCEPT_DOWNLOADS_KEY] ?? true);
   mediaDownloadOverlayEnabled = Boolean(localState[MEDIA_DOWNLOAD_OVERLAY_KEY] ?? true);
+  domainBlacklist = parseRuleLines(String(localState[DOMAIN_BLACKLIST_KEY] ?? ""));
+  typeBlacklist = parseRuleLines(String(localState[TYPE_BLACKLIST_KEY] ?? ""));
+  sizeBlacklistMB = String(localState[SIZE_BLACKLIST_KEY] ?? "").trim();
+  notifyOnTaskCreated = Boolean(localState[NOTIFY_ON_TASK_CREATED_KEY] ?? true);
 
   await desktopBridge.loadPersistentState();
   await resourceBridge.loadPersistentState();
@@ -157,6 +291,18 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
   if (changes[MEDIA_DOWNLOAD_OVERLAY_KEY]) {
     mediaDownloadOverlayEnabled = Boolean(changes[MEDIA_DOWNLOAD_OVERLAY_KEY].newValue ?? true);
+  }
+  if (changes[DOMAIN_BLACKLIST_KEY]) {
+    domainBlacklist = parseRuleLines(String(changes[DOMAIN_BLACKLIST_KEY].newValue ?? ""));
+  }
+  if (changes[TYPE_BLACKLIST_KEY]) {
+    typeBlacklist = parseRuleLines(String(changes[TYPE_BLACKLIST_KEY].newValue ?? ""));
+  }
+  if (changes[SIZE_BLACKLIST_KEY]) {
+    sizeBlacklistMB = String(changes[SIZE_BLACKLIST_KEY].newValue ?? "").trim();
+  }
+  if (changes[NOTIFY_ON_TASK_CREATED_KEY]) {
+    notifyOnTaskCreated = Boolean(changes[NOTIFY_ON_TASK_CREATED_KEY].newValue ?? true);
   }
 });
 
@@ -210,6 +356,14 @@ async function interceptBrowserDownload(
 ) {
   const finalUrl = downloadItem.finalUrl || downloadItem.url;
   if (!interceptDownloads || !desktopBridge.isReady() || !/^https?:/i.test(finalUrl)) {
+    return;
+  }
+  if (shouldBlockByBlacklist({
+    url: finalUrl,
+    filename: downloadItem.filename,
+    mime: downloadItem.mime,
+    size: downloadItem.totalBytes > 0 ? downloadItem.totalBytes : undefined,
+  })) {
     return;
   }
 
@@ -337,7 +491,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "popup_send_resource") {
-    return reply(sendResponse, resourceBridge.sendResource(String(message.resourceId ?? "")));
+    return reply(sendResponse, (async () => {
+      const result = await resourceBridge.sendResource(String(message.resourceId ?? ""));
+      if (result.ok) {
+        await showTaskCreatedNotification(result.message);
+      }
+      return result;
+    })());
   }
 
   if (message.type === "popup_merge_resources") {
@@ -345,16 +505,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const resourceIds = Array.isArray(message.resourceIds)
         ? message.resourceIds.map((value: unknown) => String(value ?? "")).filter(Boolean)
         : [];
-      return resourceBridge.mergeResources(resourceIds);
+      const result = await resourceBridge.mergeResources(resourceIds);
+      if (result.ok) {
+        await showTaskCreatedNotification(result.message);
+      }
+      return result;
     })());
   }
 
   if (message.type === "page_download_media") {
-    return reply(sendResponse, resourceBridge.downloadPageMedia(sender, {
-      selection: message.selection,
-      href: String(message.href ?? ""),
-      title: String(message.title ?? ""),
-    }));
+    return reply(sendResponse, (async () => {
+      const result = await resourceBridge.downloadPageMedia(sender, {
+        selection: message.selection,
+        href: String(message.href ?? ""),
+        title: String(message.title ?? ""),
+      });
+      if (result.ok) {
+        await showTaskCreatedNotification(result.message);
+      }
+      return result;
+    })());
   }
 
   if (message.type === "page_media_overlay_state") {
@@ -386,6 +556,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return buildPopupState({
         currentView: "advanced",
       });
+    })());
+  }
+
+  if (message.type === "popup_set_domain_blacklist") {
+    return reply(sendResponse, (async () => {
+      const value = String(message.value ?? "");
+      await chrome.storage.local.set({ [DOMAIN_BLACKLIST_KEY]: value });
+      return { ok: true };
+    })());
+  }
+
+  if (message.type === "popup_set_type_blacklist") {
+    return reply(sendResponse, (async () => {
+      const value = String(message.value ?? "");
+      await chrome.storage.local.set({ [TYPE_BLACKLIST_KEY]: value });
+      return { ok: true };
+    })());
+  }
+
+  if (message.type === "popup_set_size_blacklist") {
+    return reply(sendResponse, (async () => {
+      const value = String(message.value ?? "").trim();
+      await chrome.storage.local.set({ [SIZE_BLACKLIST_KEY]: value });
+      return { ok: true };
+    })());
+  }
+
+  if (message.type === "popup_set_notify_on_task_created") {
+    return reply(sendResponse, (async () => {
+      notifyOnTaskCreated = Boolean(message.enabled);
+      await chrome.storage.local.set({ [NOTIFY_ON_TASK_CREATED_KEY]: notifyOnTaskCreated });
+      return buildPopupState({ currentView: message.view as PopupView | undefined });
     })());
   }
 
