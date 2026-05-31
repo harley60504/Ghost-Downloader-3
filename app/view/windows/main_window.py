@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import darkdetect
 from PySide6.QtCore import QRect, QPropertyAnimation, Qt, QUrl, QEvent, QTimer
-from PySide6.QtGui import QDesktopServices, QIcon, QColor, QPalette
+from PySide6.QtGui import QDesktopServices, QIcon, QColor, QPalette, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QGraphicsOpacityEffect, QDialog
 from loguru import logger
 from qfluentwidgets import MSFluentWindow, SplashScreen, FluentIcon, NavigationItemPosition, InfoBar, InfoBarPosition, \
@@ -16,9 +16,9 @@ from app.services.browser_service import BrowserService
 from app.services.category_service import categoryService
 from app.services.core_service import coreService
 from app.services.feature_service import featureService
-from app.supports.config import cfg, DEFAULT_HEADERS, AUTHOR_URL, VERSION, FEEDBACK_URL, GD3_COPY_MIME_TYPE, isWin10, \
+from app.supports.config import cfg, defaultHeaders, AUTHOR_URL, VERSION, FEEDBACK_URL, isWin10, \
     isLessThanWin10, toQFluentTheme
-from app.supports.recorder import taskRecorder
+from app.services.task_service import taskService
 from app.supports.signal_bus import signalBus
 from app.supports.update import checkUpdate, UpdateState
 from app.supports.utils import getProxies, bringWindowToTop, showMessageBox, deduplicateFilename, openAppLogFolder
@@ -65,6 +65,12 @@ class MainWindow(MSFluentWindow):
         self.initPagesAndNavigation()
 
         self.clipboard: "QClipboard | None" = None
+        # Fixes https://github.com/XiaoYouChR/Ghost-Downloader-3/issues/442
+        if QApplication.platformName() == "wayland":
+            self._lastClipboardUrls: tuple[str, ...] = ()
+        if sys.platform == "darwin":
+            self._windowCloseShortcut = QShortcut(QKeySequence.StandardKey.Close, self)
+            self._windowCloseShortcut.setContext(Qt.ShortcutContext.WindowShortcut)
         self.tray = SystemTrayIcon(self)
         self.tray.show()
 
@@ -84,6 +90,8 @@ class MainWindow(MSFluentWindow):
             lambda value: self._toggleTheme(value, triggeredByUser=True)
         )
         QApplication.instance().styleHints().colorSchemeChanged.connect(self._onSystemColorSchemeChanged)
+        if sys.platform == "darwin":
+            self._windowCloseShortcut.activated.connect(self.close)
         if platform == 'win32':
             cfg.backgroundEffect.valueChanged.connect(self._setBackgroundEffect)
 
@@ -193,13 +201,12 @@ class MainWindow(MSFluentWindow):
         else:
             self.clipboard.dataChanged.disconnect(self._onClipboardDataChanged)
 
-    def _onClipboardDataChanged(self):
+    def _onClipboardDataChanged(self) -> None:
         clipboard = QApplication.clipboard()
-        mimeData = clipboard.mimeData()
-        if mimeData.hasFormat(GD3_COPY_MIME_TYPE):
+        if clipboard.ownsClipboard():
             return
 
-        urls = []
+        urls: list[str] = []
         for rawLine in clipboard.text().splitlines():
             url = rawLine.strip()
             if not url:
@@ -216,6 +223,12 @@ class MainWindow(MSFluentWindow):
 
         if not urls:
             return
+
+        if QApplication.platformName() == "wayland":
+            clipboardUrls = tuple(urls)
+            if clipboardUrls == self._lastClipboardUrls:
+                return
+            self._lastClipboardUrls = clipboardUrls
 
         bringWindowToTop(self)
         self.showAddTaskDialog(urls=urls)
@@ -312,19 +325,14 @@ class MainWindow(MSFluentWindow):
             ):
                 folder = categoryService.folderOf(task.category)
                 if folder:
-                    task.path = Path(folder)
-                    for stage in task.stages:
-                        stage.updateOutputFile(task.path, task.title)
+                    task.applySettings({"path": Path(folder)})
 
             originalTitle = task.title
             if deduplicateFilename(task):
                 logger.info("检测到重名文件，已自动重命名 {} -> {}", originalTitle, task.title)
 
-            card = featureService.taskCard(task, self)
-            taskRecorder.add(task, False)
-            self.taskPage.addCard(card)
-            card.resumeTask()
-            taskRecorder.flush()
+            taskService.add(task)
+            coreService.createTask(task)
             return True
         except Exception as e:
             logger.opt(exception=e).error("无法创建任务卡片 {}", task.title)
@@ -437,7 +445,7 @@ class MainWindow(MSFluentWindow):
         installerName = installer["name"]
         payload = {
             "url": installer["browser_download_url"],
-            "headers": DEFAULT_HEADERS,
+            "headers": defaultHeaders(),
             "proxies": getProxies(),
             "path": Path(cfg.downloadFolder.value),
         }

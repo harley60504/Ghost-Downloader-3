@@ -1,6 +1,3 @@
-import shutil
-from pathlib import Path
-
 from PySide6.QtCore import QEvent, QFileInfo, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QFileIconProvider, QHBoxLayout, QWidget
@@ -11,27 +8,9 @@ from app.supports.utils import toReadableSize, toReadableTime
 from app.view.components.cards import ResultCard, UniversalTaskCard
 
 
-def _removeFile(path: Path):
-    try:
-        if path.is_file() or path.is_symlink():
-            path.unlink()
-    except FileNotFoundError:
-        pass
-
-
 class M3U8TaskCard(UniversalTaskCard):
     def _renderTaskState(self):
-        division = max(1, len(self.task.stages))
-        progress = 0.0
-        speed = 0
-        receivedBytes = 0
-
-        for stage in self.task.stages:
-            progress += stage.progress
-            speed += stage.speed
-            receivedBytes += stage.receivedBytes
-
-        progress /= division
+        progress, speed, receivedBytes = self.task.currentSnapshot()
         self.progressBar.setValue(progress)
 
         if self.task.fileSize > 1:
@@ -69,35 +48,6 @@ class M3U8TaskCard(UniversalTaskCard):
 
         self.refreshToggleButton()
 
-    def onTaskDeleted(self, completely: bool = False):
-        if not completely:
-            return
-
-        task = self.task
-        _removeFile(Path(task.outputFolder))
-        shutil.rmtree(Path(task.metadata.get('tempDir', '')), ignore_errors=True)
-
-        outputDirectory = Path(task.path)
-        if outputDirectory.exists():
-            prefix = f"{task.title}."
-            for candidate in outputDirectory.iterdir():
-                if candidate.name == Path(task.outputFolder).name:
-                    continue
-                if candidate.is_file() and candidate.name.startswith(prefix):
-                    _removeFile(candidate)
-
-
-class M3U8InstallTaskCard(UniversalTaskCard):
-    def onTaskDeleted(self, completely: bool = False):
-        if not completely:
-            return
-
-        installFolder = self.task.metadata.get("installFolder")
-        if installFolder:
-            shutil.rmtree(installFolder, ignore_errors=True)
-            return
-
-        super().onTaskDeleted(completely)
 
 
 class M3U8ResultCard(ResultCard):
@@ -129,11 +79,12 @@ class M3U8ResultCard(ResultCard):
         self.mainLayout.addWidget(self.filenameLabel, 1)
         self.mainLayout.addWidget(self.filenameEdit, 1)
         self.mainLayout.addWidget(self.metaLabel)
+        self.mainLayout.addWidget(self.editButton)
         self.mainLayout.addWidget(self.categoryButton)
 
     def _metaText(self) -> str:
-        manifestText = "DASH" if self.task.metadata.get('manifestType', 'm3u8') == "mpd" else "HLS"
-        modeText = self.tr("直播") if self.task.metadata.get('isLive', False) else self.tr("点播")
+        manifestText = "DASH" if self.task.manifestType == "mpd" else "HLS"
+        modeText = self.tr("直播") if self.task.isLive else self.tr("点播")
         return f"{manifestText} · {modeText}"
 
     def _refreshIcon(self):

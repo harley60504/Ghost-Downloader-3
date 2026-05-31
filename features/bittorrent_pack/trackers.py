@@ -1,16 +1,17 @@
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
+import libtorrent as lt
 import niquests
 
-from app.supports.config import DEFAULT_HEADERS, cfg
+from app.supports.config import cfg, defaultHeaders
 from app.supports.utils import getProxies
-
 
 _TRACKER_SCHEMES = {"http", "https", "udp", "ws", "wss"}
 
 
 def toTrackers(source: str) -> str:
-    value = str(source or "").strip()
+    value = source.strip()
     if not value:
         return ""
     parsed = urlsplit(value)
@@ -20,30 +21,24 @@ def toTrackers(source: str) -> str:
 
 
 def parseTrackerText(text: str) -> list[str]:
-    trackers: list[str] = []
-    for raw in str(text or "").replace("\r", "\n").split():
-        tracker = raw.strip()
-        if not tracker:
-            continue
-        parsed = urlsplit(tracker)
-        if parsed.scheme.lower() not in _TRACKER_SCHEMES or not parsed.netloc:
-            continue
-        if tracker not in trackers:
-            trackers.append(tracker)
-    return trackers
+    return list(dict.fromkeys(
+        tracker for tracker in text.split()
+        if (parsed := urlsplit(tracker)).scheme.lower() in _TRACKER_SCHEMES and parsed.netloc
+    ))
 
 
-def formatTrackers(trackers: list[str]) -> str:
-    return "\n".join(parseTrackerText("\n".join(trackers)))
+def mergeTrackers(*groups: "lt.torrent_info | Iterable[str]") -> list[str]:
+    def _iter(group):
+        if isinstance(group, lt.torrent_info):
+            return (str(tracker.url).strip() for tracker in group.trackers())
+        return group
 
-
-def mergeTrackers(*trackerGroups: list[str]) -> list[str]:
-    merged: list[str] = []
-    for group in trackerGroups:
-        for tracker in group:
-            if tracker and tracker not in merged:
-                merged.append(tracker)
-    return merged
+    return list(dict.fromkeys(
+        tracker
+        for group in groups
+        for tracker in _iter(group)
+        if tracker
+    ))
 
 
 async def fetchWebTrackers(sourceUrl: str) -> list[str]:
@@ -51,7 +46,7 @@ async def fetchWebTrackers(sourceUrl: str) -> list[str]:
     if not normalizedSource:
         raise ValueError("Web Tracker 源地址无效")
 
-    async with niquests.AsyncSession(headers=DEFAULT_HEADERS.copy(), timeout=30, happy_eyeballs=True) as client:
+    async with niquests.AsyncSession(headers=defaultHeaders(), timeout=30, happy_eyeballs=True) as client:
         client.trust_env = False
         response = await client.get(
             normalizedSource,

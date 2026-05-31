@@ -4,6 +4,7 @@ import traceback
 from time import localtime, strftime, time
 
 from loguru import logger
+
 from app.supports.paths import APP_DATA_DIR
 
 # import orjson
@@ -54,7 +55,7 @@ import warnings
 from PySide6.QtCore import QTranslator
 
 from app.view.windows.main_window import MainWindow
-from app.supports.recorder import taskRecorder
+from app.services.task_service import taskService
 # noinspection PyUnresolvedReferences
 import app.assets.resources
 from app.services.core_service import coreService
@@ -72,7 +73,7 @@ isSilently = "--silence" in sys.argv
 coreService.start()
 mainWindow = MainWindow(isSilently)
 featureService.load(mainWindow)
-taskRecorder.load()
+taskService.load()
 mainWindow.taskPage.resumeMemorizedTasks()
 mainWindow.updateThemeColor()
 
@@ -80,6 +81,6 @@ if not isSilently:
     mainWindow.splashScreen.finish()
 
 application.aboutToQuit.connect(coreService.stop)
-application.aboutToQuit.connect(taskRecorder.flush)
+application.aboutToQuit.connect(taskService.flushNow)
 
 sys.exit(application.exec())

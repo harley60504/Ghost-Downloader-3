@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
 from secrets import token_urlsafe
+from typing import TYPE_CHECKING, Any, Self
 
 from PySide6.QtCore import QObject, QTimer, Slot, Qt
 from PySide6.QtNetwork import QHostAddress
@@ -14,7 +14,7 @@ from qfluentwidgets import InfoBar, InfoBarPosition, MessageBox
 from app.bases.models import Task, TaskStatus
 from app.services.core_service import coreService
 from app.supports.config import VERSION, cfg
-from app.supports.recorder import taskRecorder
+from app.services.task_service import taskService
 from app.supports.utils import bringWindowToTop, getProxies, openFile, openFolder
 
 if TYPE_CHECKING:
@@ -358,7 +358,7 @@ class BrowserService(QObject):
 
     def _allTasks(self) -> list[Task]:
         tasksById: dict[str, Task] = {
-            task.taskId: task for task in taskRecorder.memorizedTasks.values()
+            task.taskId: task for task in taskService.tasks.values()
         }
         for task in coreService.tasks:
             tasksById[task.taskId] = task
@@ -368,7 +368,7 @@ class BrowserService(QObject):
         task = coreService.task(taskId)
         if task is not None:
             return task
-        return taskRecorder.memorizedTasks.get(taskId)
+        return taskService.tasks.get(taskId)
 
     def _taskSnapshot(self) -> bytes:
         tasks = sorted(self._allTasks(), key=lambda item: item.createdAt, reverse=True)
@@ -571,39 +571,16 @@ class BrowserService(QObject):
             )
             return
 
-        card = self.mainWindow.taskPage.findCardByTaskId(task.taskId)
-        if card is not None:
-            card.deleted.emit()
-            card.onTaskDeleted(True)
-        else:
-            taskRecorder.remove(task)
-            taskRecorder.flush()
-            self._removeTaskArtifacts(task)
+        try:
+            task.cleanup()
+        except Exception as cleanupError:
+            logger.opt(exception=cleanupError).error(
+                "failed to delete task resources {}", task.taskId
+            )
+        taskService.remove(task)
 
         self._sendResult(session, BrowserMessageType.TASK_ACTION_RESULT, requestId, ok=True)
         self._broadcastTaskSnapshots()
-
-    def _removeTaskArtifacts(self, task: Task):
-        candidates: set[Path] = set()
-        if task.outputFolder:
-            candidates.add(Path(task.outputFolder))
-
-        for stage in task.stages:
-            outputFile = getattr(stage, "outputFile", "")
-            if outputFile:
-                candidates.add(Path(outputFile))
-
-        for target in candidates:
-            for path in (target, Path(str(target) + ".ghd")):
-                try:
-                    if path.is_file() or path.is_symlink():
-                        path.unlink()
-                except FileNotFoundError:
-                    continue
-                except PermissionError:
-                    logger.warning("skip removing busy file {}", path)
-                except Exception as error:
-                    logger.opt(exception=error).error("failed to remove task file {}", path)
 
     def _onTaskRedownloaded(
         self,
@@ -623,14 +600,9 @@ class BrowserService(QObject):
             return
 
         try:
-            card = self.mainWindow.taskPage.findCardByTaskId(task.taskId)
-            if card is not None:
-                card.onTaskDeleted(True)
-            else:
-                self._removeTaskArtifacts(task)
-
+            task.cleanup()
             task.reset()
-            taskRecorder.flush()
+            taskService.scheduleFlush()
             coreService.createTask(task)
         except Exception as actionError:
             logger.opt(exception=actionError).error("Browser task redownload failed")

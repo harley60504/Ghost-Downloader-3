@@ -1,16 +1,7 @@
-import { DEFAULT_SERVER_URL } from "../shared/constants";
-import type {
-  DesktopConnectionState,
-  DesktopRequestResult,
-  GenericTaskSummary,
-} from "../shared/types";
-import {
-  PAIR_TOKEN_KEY,
-  PROTOCOL_VERSION,
-  RECONNECT_ALARM,
-  SERVER_URL_KEY,
-} from "./constants";
-import { localStorageGet, localStorageSet } from "./chrome-helpers";
+import {DEFAULT_SERVER_URL} from "../shared/constants";
+import type {DesktopConnectionState, DesktopRequestResult, GenericTaskSummary,} from "../shared/types";
+import {PAIR_TOKEN_KEY, PROTOCOL_VERSION, RECONNECT_ALARM, SERVER_URL_KEY,} from "./constants";
+import {loadFromLocalStorage, localStorageSet} from "./chrome-helpers";
 
 type PendingRequest = {
   resolve: (value: any) => void;
@@ -26,7 +17,7 @@ type PairingResponse = {
 };
 
 const PAIRING_TIMEOUT_MS = 60000;
-const MISSING_PAIRING_MESSAGE = "请在扩展设置页自动配对桌面端";
+const MISSING_PAIRING_MESSAGE = "待配对";
 
 export type DesktopBridgeSnapshot = {
   connectionState: DesktopConnectionState;
@@ -37,42 +28,6 @@ export type DesktopBridgeSnapshot = {
   tasks: GenericTaskSummary[];
 };
 
-function normalizeServerUrl(value: string): string {
-  const raw = String(value || DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
-
-  try {
-    const withScheme = /^[a-z][a-z\d+\-.]*:\/\//i.test(raw) ? raw : `ws://${raw}`;
-    const url = new URL(withScheme);
-
-    if (url.protocol === "http:") {
-      url.protocol = "ws:";
-    } else if (url.protocol === "https:") {
-      url.protocol = "wss:";
-    }
-
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
-      return DEFAULT_SERVER_URL;
-    }
-
-    // 0.0.0.0 只能给桌面端 listen 用，浏览器 WebSocket 客户端不能拿它当目标连线。
-    // 本机测试时自动转成 127.0.0.1；远端连接请在设置里填实际 LAN IP，例如 ws://192.168.1.23:14370。
-    if (url.hostname === "0.0.0.0" || url.hostname === "::") {
-      url.hostname = "127.0.0.1";
-    }
-
-    if (!url.port) {
-      url.port = "14370";
-    }
-
-    url.pathname = "/";
-    url.search = "";
-    url.hash = "";
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return DEFAULT_SERVER_URL;
-  }
-}
-
 export function createDesktopBridge() {
   let desktopSocket: WebSocket | null = null;
   let reconnectTimer: number | null = null;
@@ -81,7 +36,7 @@ export function createDesktopBridge() {
   let connectionMessage = MISSING_PAIRING_MESSAGE;
   let desktopVersion = "";
   let pairToken = "";
-  let serverUrl = normalizeServerUrl(DEFAULT_SERVER_URL);
+  let serverUrl = DEFAULT_SERVER_URL;
   let taskSnapshot: GenericTaskSummary[] = [];
 
   const pendingRequests = new Map<string, PendingRequest>();
@@ -124,7 +79,7 @@ export function createDesktopBridge() {
     }, 2500);
   }
 
-  function handleDesktopMessage(rawData: string) {
+  function onDesktopMessage(rawData: string) {
     let message: Record<string, any>;
     try {
       message = JSON.parse(rawData) as Record<string, any>;
@@ -185,26 +140,22 @@ export function createDesktopBridge() {
       desktopSocket = null;
     }
 
-    const targetUrl = normalizeServerUrl(serverUrl);
-    serverUrl = targetUrl;
-    await localStorageSet({ [SERVER_URL_KEY]: serverUrl });
-
-    setConnectionState("connecting", `正在连接 Ghost Downloader (${targetUrl})`);
-    const socket = new WebSocket(targetUrl);
+    setConnectionState("connecting", "连接中");
+    const socket = new WebSocket(serverUrl);
     desktopSocket = socket;
 
     socket.addEventListener("open", () => {
       if (desktopSocket !== socket) {
         return;
       }
-      setConnectionState("authenticating", "正在校验配对令牌");
+      setConnectionState("authenticating", "校验中");
       socket.send(
         JSON.stringify({
           type: "hello",
           protocolVersion: PROTOCOL_VERSION,
           token: pairToken,
           extensionVersion: chrome.runtime.getManifest().version,
-          clientKind: "browser_extension",
+          clientKind: "chromium_popup",
         }),
       );
     });
@@ -213,7 +164,7 @@ export function createDesktopBridge() {
       if (desktopSocket !== socket) {
         return;
       }
-      handleDesktopMessage(String(event.data ?? ""));
+      onDesktopMessage(String(event.data ?? ""));
     });
 
     socket.addEventListener("close", () => {
@@ -221,7 +172,7 @@ export function createDesktopBridge() {
         return;
       }
       desktopSocket = null;
-      rejectPendingRequests("与 Ghost Downloader 的连接已断开");
+      rejectPendingRequests("连接断开");
       if (connectionState !== "unauthorized" && connectionState !== "missing_token") {
         desktopVersion = "";
         setConnectionState("disconnected", "未连接");
@@ -235,21 +186,18 @@ export function createDesktopBridge() {
       }
       if (connectionState !== "unauthorized") {
         desktopVersion = "";
-        setConnectionState("disconnected", `无法连接到 Ghost Downloader (${targetUrl})`);
+        setConnectionState("disconnected", "连接失败");
       }
     });
   }
 
   async function requestPairing(): Promise<void> {
     clearReconnectTimer();
-    const targetUrl = normalizeServerUrl(serverUrl);
-    serverUrl = targetUrl;
-    await localStorageSet({ [SERVER_URL_KEY]: serverUrl });
-    setConnectionState("connecting", `正在请求桌面端确认配对 (${targetUrl})`);
+    setConnectionState("connecting", "配对中");
 
     try {
       const token = await new Promise<string>((resolve, reject) => {
-        const socket = new WebSocket(targetUrl);
+        const socket = new WebSocket(serverUrl);
         let settled = false;
         let timeoutId = 0;
 
@@ -264,7 +212,7 @@ export function createDesktopBridge() {
         };
 
         timeoutId = self.setTimeout(() => {
-          finish(() => reject(new Error("等待桌面端确认配对超时")));
+          finish(() => reject(new Error("配对超时")));
         }, PAIRING_TIMEOUT_MS);
 
         socket.addEventListener("open", () => {
@@ -291,13 +239,13 @@ export function createDesktopBridge() {
           }
 
           if (!response.ok) {
-            finish(() => reject(new Error(response.message || "桌面端已拒绝配对请求")));
+            finish(() => reject(new Error(response.message || "已拒绝配对")));
             return;
           }
 
           const token = String(response.token ?? "").trim();
           if (!token) {
-            finish(() => reject(new Error("桌面端未返回配对令牌")));
+            finish(() => reject(new Error("未返回令牌")));
             return;
           }
 
@@ -305,11 +253,11 @@ export function createDesktopBridge() {
         });
 
         socket.addEventListener("close", () => {
-          finish(() => reject(new Error("配对连接已断开")));
+          finish(() => reject(new Error("配对断开")));
         });
 
         socket.addEventListener("error", () => {
-          finish(() => reject(new Error(`无法连接到 Ghost Downloader (${targetUrl})`)));
+          finish(() => reject(new Error("连接失败")));
         });
       });
       await setToken(token);
@@ -322,7 +270,7 @@ export function createDesktopBridge() {
 
   async function sendRequest<T extends DesktopRequestResult>(payload: Record<string, unknown>): Promise<T> {
     if (!isReady() || !desktopSocket) {
-      throw new Error("Ghost Downloader 未连接");
+      throw new Error("未连接");
     }
 
     const requestId = String(payload.requestId ?? nextRequestId());
@@ -331,7 +279,7 @@ export function createDesktopBridge() {
     return new Promise<T>((resolve, reject) => {
       const timeoutId = self.setTimeout(() => {
         pendingRequests.delete(requestId);
-        reject(new Error("等待 Ghost Downloader 响应超时"));
+        reject(new Error("响应超时"));
       }, 12000);
 
       pendingRequests.set(requestId, {
@@ -345,7 +293,7 @@ export function createDesktopBridge() {
   }
 
   async function loadPersistentState() {
-    const localState = await localStorageGet<{
+    const localState = await loadFromLocalStorage<{
       [PAIR_TOKEN_KEY]: string;
       [SERVER_URL_KEY]: string;
     }>({
@@ -354,8 +302,7 @@ export function createDesktopBridge() {
     });
 
     pairToken = String(localState[PAIR_TOKEN_KEY] ?? "").trim();
-    serverUrl = normalizeServerUrl(String(localState[SERVER_URL_KEY] ?? DEFAULT_SERVER_URL));
-    await localStorageSet({ [SERVER_URL_KEY]: serverUrl });
+    serverUrl = String(localState[SERVER_URL_KEY] ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
   }
 
   async function setToken(token: string) {
@@ -376,17 +323,17 @@ export function createDesktopBridge() {
   }
 
   async function setServerUrl(nextServerUrl: string) {
-    serverUrl = normalizeServerUrl(nextServerUrl);
+    serverUrl = String(nextServerUrl ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
     await localStorageSet({ [SERVER_URL_KEY]: serverUrl });
     await connect(true);
   }
 
-  function syncLocalStorageChanges(changes: { [key: string]: chrome.storage.StorageChange }) {
+  function onLocalStorageChanged(changes: { [key: string]: chrome.storage.StorageChange }) {
     if (changes[PAIR_TOKEN_KEY]) {
       pairToken = String(changes[PAIR_TOKEN_KEY].newValue ?? "").trim();
     }
     if (changes[SERVER_URL_KEY]) {
-      serverUrl = normalizeServerUrl(String(changes[SERVER_URL_KEY].newValue ?? DEFAULT_SERVER_URL));
+      serverUrl = String(changes[SERVER_URL_KEY].newValue ?? DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
     }
   }
 
@@ -405,7 +352,7 @@ export function createDesktopBridge() {
     chrome.alarms.create(RECONNECT_ALARM, { periodInMinutes: 1 });
   }
 
-  function handleReconnectAlarm(alarm: chrome.alarms.Alarm) {
+  function onReconnectAlarm(alarm: chrome.alarms.Alarm) {
     if (alarm.name !== RECONNECT_ALARM || connectionState === "connected") {
       return;
     }
@@ -416,13 +363,13 @@ export function createDesktopBridge() {
     buildSnapshot,
     connect,
     ensureReconnectAlarm,
-    handleReconnectAlarm,
+    onReconnectAlarm,
     isReady,
     loadPersistentState,
     requestPairing,
     sendRequest,
     setServerUrl,
     setToken,
-    syncLocalStorageChanges,
+    onLocalStorageChanged,
   };
 }

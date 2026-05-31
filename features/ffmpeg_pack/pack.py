@@ -1,3 +1,4 @@
+import asyncio
 import platform
 import sys
 from pathlib import Path
@@ -8,17 +9,18 @@ import niquests
 
 from app.bases.interfaces import FeaturePack
 from app.bases.models import Task, SpecialFileSize
-from app.supports.config import DEFAULT_HEADERS, cfg
-from app.supports.utils import getProxies, toExecutable, toPosixPath, toSafeFilename
+from app.supports.config import activeUserAgent, cfg
+from app.supports.utils import getProxies, toExecutable, toSafeFilename
 from .config import ffmpegConfig, ffmpegPaths
-from .task import FFmpegMergeSourceStage, FFmpegMergeStage
+from app.view.components.cards import UniversalTaskCard
+from .task import FFmpegResourceStage, FFmpegStage
 
 if TYPE_CHECKING:
+    from features.disk_pack.pack import buildToolInstallTask
     from features.http_pack.task import HttpTaskStage
-    from features.extract_pack.task import ExtractStage
 else:
+    from disk_pack.pack import buildToolInstallTask
     from http_pack.task import HttpTaskStage
-    from extract_pack.task import ExtractStage
 
 
 FFMPEG_MERGE_URL = "gd3+ffmpeg://merge"
@@ -26,24 +28,16 @@ FFMPEG_MERGE_URL = "gd3+ffmpeg://merge"
 _FFMPEG_RELEASE_API = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
 _FFMPEG_HEADERS = {
     "accept": "application/vnd.github+json",
-    "user-agent": DEFAULT_HEADERS["user-agent"],
+    "user-agent": activeUserAgent(),
 }
 
 
-
 def _resourceExtension(name: str, url: str) -> str:
-    fileName = Path(name).name if name else Path(urlparse(url).path).name
-    return Path(fileName).suffix.lstrip(".").lower()
+    target = name or urlparse(url).path
+    return Path(target).suffix.lstrip(".").lower()
 
 
-def _mergeOutputTitle(title: str) -> str:
-    baseTitle = toSafeFilename(title, fallback="merged-media")
-    if baseTitle.lower().endswith(".mp4"):
-        return baseTitle
-    return f"{baseTitle}.mp4"
-
-
-def _detectWindowsTarget() -> tuple[str, str]:
+def _windowsTarget() -> tuple[str, str]:
     if sys.platform != "win32":
         raise RuntimeError("一键安装 FFmpeg 仅支持 Windows 平台")
 
@@ -55,12 +49,10 @@ def _detectWindowsTarget() -> tuple[str, str]:
     raise RuntimeError(f"不支持的 Windows 架构: {platform.machine()}")
 
 
-def _selectReleaseAsset(assets: list[dict[str, Any]]) -> dict[str, Any]:
-    target, _ = _detectWindowsTarget()
+def _bestAsset(assets: list[dict[str, Any]], target: str) -> dict[str, Any]:
     candidates: list[tuple[int, dict[str, Any]]] = []
     for asset in assets:
-        name = str(asset.get("name") or "")
-        lowerName = name.lower()
+        lowerName = asset["name"].lower()
         if target not in lowerName or not lowerName.endswith(".zip") or "shared" in lowerName:
             continue
 
@@ -75,12 +67,10 @@ def _selectReleaseAsset(assets: list[dict[str, Any]]) -> dict[str, Any]:
 
     if not candidates:
         raise RuntimeError(f"未找到适用于当前平台的 FFmpeg 安装包: {target}")
-
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1]
+    return max(candidates, key=lambda item: item[0])[1]
 
 
-async def _requestLatestReleaseAsset() -> dict[str, Any]:
+async def _fetchLatestRelease(target: str) -> dict[str, Any]:
     async with niquests.AsyncSession(headers=_FFMPEG_HEADERS, timeout=30, happy_eyeballs=True) as client:
         client.trust_env = False
         response = await client.get(
@@ -96,10 +86,10 @@ async def _requestLatestReleaseAsset() -> dict[str, Any]:
     if not isinstance(assets, list):
         raise RuntimeError("GitHub Release 返回了无效的 assets 数据")
 
-    asset = _selectReleaseAsset(assets)
-    downloadUrl = str(asset.get("browser_download_url") or "").strip()
-    assetName = str(asset.get("name") or "").strip()
-    size = int(asset.get("size") or 0)
+    asset = _bestAsset(assets, target)
+    downloadUrl = asset["browser_download_url"].strip()
+    assetName = asset["name"].strip()
+    size = asset["size"]
     if not downloadUrl or not assetName or size <= 0:
         raise RuntimeError("GitHub Release 返回了不完整的 FFmpeg 安装包信息")
 
@@ -110,93 +100,62 @@ async def _requestLatestReleaseAsset() -> dict[str, Any]:
     }
 
 
+async def _resourceDownloadTask(item: dict[str, Any], payload: dict[str, Any], path: Path) -> Task:
+    from app.services.feature_service import featureService
+
+    url = item["url"].strip()
+    if not url.startswith(("http://", "https://")):
+        raise RuntimeError("在线合并暂不支持 blob 或非 HTTP 资源")
+
+    resourceTask = await featureService.parse({
+        "url": url,
+        "filename": (item.get("filename") or "").strip(),
+        "headers": item.get("headers") or {},
+        "fileSize": item.get("fileSize") or SpecialFileSize.UNKNOWN,
+        "supportsRange": bool(item.get("supportsRange")),
+        "proxies": payload.get("proxies", getProxies()),
+        "path": path,
+        "preBlockNum": payload.get("preBlockNum", cfg.preBlockNum.value),
+    })
+    if not resourceTask.stages:
+        raise RuntimeError("解析在线合并源文件失败")
+    return resourceTask
+
+
 async def createMergeTask(payload: dict[str, Any]) -> Task:
     ffmpeg, ffprobe = ffmpegPaths()
     if not ffmpeg or not ffprobe:
         raise RuntimeError("未找到可用的 ffmpeg 和 ffprobe，请先在设置中安装或配置 FFmpeg")
 
-    from app.services.feature_service import featureService
-
     resources = payload.get("resources") or []
     if len(resources) != 2:
         raise RuntimeError("在线合并暂时只支持 2 个 HTTP 音视频资源")
 
-    parsedResources: list[tuple[dict[str, Any], Task]] = []
-    for item in resources:
-        url = str(item.get("url") or "").strip()
-        if not url.startswith(("http://", "https://")):
-            raise RuntimeError("在线合并暂不支持 blob 或非 HTTP 资源")
-
-        resourcePayload = {
-            "url": url,
-            "filename": str(item.get("filename") or "").strip(),
-            "headers": item.get("headers") or {},
-            "fileSize": item.get("fileSize") or SpecialFileSize.UNKNOWN,
-            "supportsRange": bool(item.get("supportsRange")),
-            "proxies": payload.get("proxies", getProxies()),
-            "path": Path(payload.get("path", cfg.downloadFolder.value)),
-            "preBlockNum": payload.get("preBlockNum", cfg.preBlockNum.value),
-        }
-
-        resourceTask = await featureService.parse(resourcePayload)
-
-        if not resourceTask.stages:
-            raise RuntimeError("解析在线合并源文件失败")
-
-        parsedResources.append((item, resourceTask))
-
-    outputTitle = _mergeOutputTitle(
-        str(payload.get("outputTitle") or "").strip()
-        or str(parsedResources[0][0].get("pageTitle") or "").strip()
-        or "merged-media"
-    )
-
-    videoTask = parsedResources[0][1]
-    audioTask = parsedResources[1][1]
-    parsedVideoStage: HttpTaskStage = videoTask.stages[0]
-    parsedAudioStage: HttpTaskStage = audioTask.stages[0]
-
-    videoExt = _resourceExtension(videoTask.title, parsedVideoStage.url)
-    audioExt = _resourceExtension(audioTask.title, parsedAudioStage.url)
     path = Path(payload.get("path", cfg.downloadFolder.value))
-    finalPath = path / outputTitle
-    videoStage = FFmpegMergeSourceStage(
-        stageIndex=1,
-        url=parsedVideoStage.url,
-        fileSize=parsedVideoStage.fileSize,
-        headers=parsedVideoStage.headers,
-        proxies=parsedVideoStage.proxies,
-        outputFile="",
-        blockNum=parsedVideoStage.blockNum,
-        supportsRange=parsedVideoStage.supportsRange,
-        accelerated=parsedVideoStage.accelerated,
-        mergeKind="video",
-        mergeExtension=videoExt,
+    videoTask, audioTask = await asyncio.gather(
+        _resourceDownloadTask(resources[0], payload, path),
+        _resourceDownloadTask(resources[1], payload, path),
     )
-    audioStage = FFmpegMergeSourceStage(
-        stageIndex=2,
-        url=parsedAudioStage.url,
-        fileSize=parsedAudioStage.fileSize,
-        headers=parsedAudioStage.headers,
-        proxies=parsedAudioStage.proxies,
-        outputFile="",
-        blockNum=parsedAudioStage.blockNum,
-        supportsRange=parsedAudioStage.supportsRange,
-        accelerated=parsedAudioStage.accelerated,
-        mergeKind="audio",
-        mergeExtension=audioExt,
+
+    rawTitle = (
+        (payload.get("outputTitle") or "").strip()
+        or (resources[0].get("pageTitle") or "").strip()
     )
-    mergeStage = FFmpegMergeStage(
+    baseTitle = toSafeFilename(rawTitle, fallback="merged-media")
+    outputTitle = baseTitle if baseTitle.lower().endswith(".mp4") else f"{baseTitle}.mp4"
+
+    videoSource: HttpTaskStage = videoTask.stages[0]
+    audioSource: HttpTaskStage = audioTask.stages[0]
+    videoExt = _resourceExtension(videoTask.title, videoSource.url)
+    audioExt = _resourceExtension(audioTask.title, audioSource.url)
+
+    videoStage = _toResourceStage(videoSource, role="video", extension=videoExt, stageIndex=1)
+    audioStage = _toResourceStage(audioSource, role="audio", extension=audioExt, stageIndex=2)
+    mergeStage = FFmpegStage(
         stageIndex=3,
-        videoPath="",
-        audioPath="",
-        outputFile="",
         videoExtension=videoExt,
         audioExtension=audioExt,
     )
-    videoStage.updateOutputFile(path, outputTitle)
-    audioStage.updateOutputFile(path, outputTitle)
-    mergeStage.updateOutputFile(path, outputTitle)
 
     task = Task(
         title=outputTitle,
@@ -204,12 +163,6 @@ async def createMergeTask(payload: dict[str, Any]) -> Task:
         packId="ffmpeg",
         fileSize=max(0, videoTask.fileSize) + max(0, audioTask.fileSize),
         path=path,
-        metadata={
-            "proxies": payload.get("proxies", getProxies()),
-            "blockNum": payload.get("preBlockNum", cfg.preBlockNum.value),
-            "videoFileName": videoTask.title,
-            "audioFileName": audioTask.title,
-        },
     )
     task.addStage(videoStage)
     task.addStage(audioStage)
@@ -217,53 +170,35 @@ async def createMergeTask(payload: dict[str, Any]) -> Task:
     return task
 
 
-async def createInstallTask() -> Task:
-    from app.services.feature_service import featureService
-
-    assetInfo = await _requestLatestReleaseAsset()
-    _, archLabel = _detectWindowsTarget()
-    installFolder = ffmpegConfig.installFolder.value
-
-    downloadPayload = {
-        "url": assetInfo["url"],
-        "headers": _FFMPEG_HEADERS.copy(),
-        "proxies": getProxies(),
-        "path": Path(installFolder),
-    }
-    downloadTask = await featureService.parse(downloadPayload)
-
-    if not downloadTask.stages:
-        raise RuntimeError("解析 FFmpeg 下载链接后未获取到下载阶段")
-
-    downloadStage: HttpTaskStage = downloadTask.stages[0]
-    archiveSize = downloadTask.fileSize if downloadTask.fileSize > 0 else assetInfo["size"]
-    assetName = downloadTask.title or str(assetInfo["name"])
-    archivePath = toPosixPath(Path(installFolder) / assetName)
-
-    downloadStage.stageIndex = 1
-    downloadStage.outputFile = archivePath
-
-    task = Task(
-        title=f"FFmpeg 安装 ({archLabel})",
-        url=downloadTask.url,
-        packId="ffmpeg",
-        fileSize=archiveSize,
-        path=Path(installFolder),
-        usesSlot=False,
-        metadata={
-            "archiveSize": archiveSize,
-            "installFolder": installFolder,
-            "assetName": assetName,
-        },
+def _toResourceStage(
+    httpStage: "HttpTaskStage", *, role: str, extension: str, stageIndex: int,
+) -> FFmpegResourceStage:
+    return FFmpegResourceStage(
+        stageIndex=stageIndex,
+        url=httpStage.url,
+        fileSize=httpStage.fileSize,
+        headers=httpStage.headers,
+        proxies=httpStage.proxies,
+        blockNum=httpStage.blockNum,
+        supportsRange=httpStage.supportsRange,
+        role=role,
+        extension=extension,
     )
-    task.addStage(downloadStage)
-    task.addStage(ExtractStage(
-        stageIndex=2,
-        archivePath=archivePath,
-        installFolder=toPosixPath(Path(installFolder)),
+
+
+async def createInstallTask() -> Task:
+    target, archLabel = _windowsTarget()
+    assetInfo = await _fetchLatestRelease(target)
+    return await buildToolInstallTask(
+        packId="ffmpeg",
+        title=f"FFmpeg 安装 ({archLabel})",
+        downloadUrl=assetInfo["url"],
+        fallbackAssetName=assetInfo["name"],
+        fallbackSize=assetInfo["size"],
+        installFolder=Path(ffmpegConfig.installFolder.value),
         executableNames=[toExecutable("ffmpeg"), toExecutable("ffprobe")],
-    ))
-    return task
+        headers=_FFMPEG_HEADERS,
+    )
 
 
 class FFmpegPack(FeaturePack):
@@ -271,7 +206,13 @@ class FFmpegPack(FeaturePack):
     config = ffmpegConfig
 
     def matches(self, url: str) -> bool:
-        return str(url).strip() == FFMPEG_MERGE_URL
+        return url.strip() == FFMPEG_MERGE_URL
 
     async def parse(self, payload: dict) -> Task:
         return await createMergeTask(payload)
+
+    def taskCard(self, task, parent=None):
+        from disk_pack.task import InstallTask
+        if isinstance(task, InstallTask):
+            return UniversalTaskCard(task, parent)
+        return super().taskCard(task, parent)

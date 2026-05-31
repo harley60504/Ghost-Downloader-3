@@ -5,9 +5,6 @@
 > [!NOTE]
 > Due to academic commitments, development on this project has slowed down recently.
 
-> [!TIP]
-> If you want to use Ghost-Downloader-3 on Windows 7, please download version `v3.8.0-Windows7`.
-
 > [!IMPORTANT]
 > Welcome to join the Ghost Downloader user group: [756042420](https://qm.qq.com/q/gPk6FR1Hby)
 
@@ -108,14 +105,14 @@ Thanks to all contributors who have participated in this project!
           <br />
           <sub><b>XiaoYouChR</b></sub></a>
         <br />
-        <sub><b>14117 words</b></sub>
+        <sub><b>14249 words</b></sub>
       </td>
       <td align="center" valign="top">
         <a href="https://crowdin.com/profile/i0ntempest"><img alt="logo" style="width: 64px" src="https://crowdin-static.cf-downloads.crowdin.com/avatar/17636930/medium/f6bf4e67c7b87221f2e7e04345f8c6b2.jpeg" />
           <br />
           <sub><b>i0ntempest</b></sub></a>
         <br />
-        <sub><b>1026 words</b></sub>
+        <sub><b>1920 words</b></sub>
       </td>
       <td align="center" valign="top">
         <a href="https://crowdin.com/profile/ReM2812"><img alt="logo" style="width: 64px" src="https://crowdin-static.cf-downloads.crowdin.com/avatar/17626502/medium/8d12a395a224c0f9d5546a8e5621186c.jpg" />

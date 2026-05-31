@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -23,17 +22,7 @@ from app.supports.utils import toReadableSize, toReadableTime
 from app.view.components.cards import ResultCard, UniversalTaskCard
 from app.view.components.dialogs import FileSelectDialog
 from app.view.components.labels import IconBodyLabel
-
 from .task import BTFile, BTTask
-
-
-def _removePath(path: Path):
-    if not path.exists():
-        return
-    if path.is_dir():
-        shutil.rmtree(path, ignore_errors=True)
-        return
-    path.unlink(missing_ok=True)
 
 
 def _openFileSelection(task: BTTask, parent) -> set[int] | None:
@@ -63,17 +52,19 @@ class TorrentFileSelectDialog(FileSelectDialog):
 class BitTorrentResultCard(ResultCard):
     def __init__(self, task: BTTask, parent: QWidget = None):
         super().__init__(task, parent)
-
-        self.mainLayout = QHBoxLayout(self)
-        self.textLayout = QVBoxLayout()
+        # instant widget
         self.iconLabel = IconWidget(self)
         self.titleLabel = StrongBodyLabel(self.task.title, self)
         self.sourceLabel = CaptionLabel(self._sourceText(), self)
         self.summaryLabel = BodyLabel("", self)
         self.selectFilesButton = PrimaryPushButton(self.tr("选择文件"), self)
+        # instant layout
+        self.mainLayout = QHBoxLayout(self)
+        self.textLayout = QVBoxLayout()
 
         self._initWidget()
         self._initLayout()
+        self._bind()
         self._refreshSummary()
         self._renderCategoryButton()
 
@@ -82,7 +73,6 @@ class BitTorrentResultCard(ResultCard):
         self.iconLabel.setFixedSize(20, 20)
         icon = QFileIconProvider.IconType.File if self.task.isSingleFile else QFileIconProvider.IconType.Folder
         self.iconLabel.setIcon(QFileIconProvider().icon(icon))
-        self.selectFilesButton.clicked.connect(self._onSelectFilesClicked)
 
     def _initLayout(self):
         self.mainLayout.setContentsMargins(10, 6, 10, 6)
@@ -98,6 +88,9 @@ class BitTorrentResultCard(ResultCard):
         self.mainLayout.addSpacing(12)
         self.mainLayout.addWidget(self.categoryButton)
         self.mainLayout.addWidget(self.selectFilesButton)
+
+    def _bind(self):
+        self.selectFilesButton.clicked.connect(self._onSelectFilesClicked)
 
     def _sourceText(self) -> str:
         typeText = "Magnet" if self.task.sourceType == "magnet" else "Torrent"
@@ -173,8 +166,6 @@ class BTTaskCard(UniversalTaskCard):
             self.speedLabel.show()
             self.uploadRateLabel.show()
             self.progressLabel.show()
-            if not metaText:
-                self.metaInfoLabel.hide()
             self.infoLabel.hide()
             return
 
@@ -201,13 +192,6 @@ class BTTaskCard(UniversalTaskCard):
             and Path(self.task.outputFolder).is_file()
         )
         self.selectFilesButton.setEnabled(self.task.status != TaskStatus.COMPLETED or self.task.hasUnselected)
-
-    def onTaskDeleted(self, completely: bool = False):
-        if not completely:
-            return
-        _removePath(Path(self.task.outputFolder))
-        if self.task.magnetTorrentPath is not None:
-            _removePath(self.task.magnetTorrentPath)
 
     def onTaskFinished(self):
         super().onTaskFinished()

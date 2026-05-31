@@ -1,14 +1,14 @@
-import { makeStyles } from "@fluentui/react-components";
-import { useState } from "react";
+import {makeStyles} from "@fluentui/react-components";
+import {useState} from "react";
 
-import type { PopupView, ThemePreference } from "../shared/types";
-import { AdvancedPage } from "./components/AdvancedPage";
-import { DownloadsPage } from "./components/DownloadsPage";
-import { Header } from "./components/Header";
-import { ResourcesPage } from "./components/ResourcesPage";
-import { SettingsPage } from "./components/SettingsPage";
-import { ToastHost } from "./components/ToastHost";
-import { usePopupBridge } from "./hooks/usePopupBridge";
+import type {PopupView, ThemePreference} from "../shared/types";
+import {AdvancedPage} from "./components/AdvancedPage";
+import {DownloadsPage} from "./components/DownloadsPage";
+import {Header} from "./components/Header";
+import {ResourcesPage} from "./components/ResourcesPage";
+import {SettingsPage} from "./components/SettingsPage";
+import {ToastHost} from "./components/ToastHost";
+import {usePopupBridge} from "./hooks/usePopupBridge";
 
 const useStyles = makeStyles({
   root: {
@@ -27,11 +27,9 @@ const useStyles = makeStyles({
 
 export function App({
   themePreference,
-  resolvedThemePreference,
   onThemePreferenceChange,
 }: {
   themePreference: ThemePreference;
-  resolvedThemePreference: Exclude<ThemePreference, "system">;
   onThemePreferenceChange: (nextPreference: ThemePreference) => void;
 }) {
   const styles = useStyles();
@@ -81,22 +79,16 @@ export function App({
             featureStates={bridge.featureStates}
             isFeatureBusy={bridge.isFeatureBusy}
             onFeatureToggle={(feature) => void bridge.toggleFeature(feature)}
-            mediaTabs={bridge.mediaTabs}
             mediaItems={bridge.mediaItems}
-            selectedMediaTabId={bridge.selectedMediaTabId}
-            selectedMediaIndex={bridge.selectedMediaIndex}
             mediaPlaybackState={bridge.mediaPlaybackState}
             mediaBusy={bridge.isUpdatingMedia}
-            onMediaTabChange={(tabId) => void bridge.setMediaTarget(tabId, -1)}
-            onMediaItemChange={(index) => void bridge.setMediaTarget(bridge.selectedMediaTabId, index)}
+            onMediaItemChange={(index) => void bridge.setMediaIndex(index)}
             onMediaAction={(action, value) => void bridge.performMediaAction(action, value)}
           />
         ) : null}
 
         {currentView === "settings" ? (
           <SettingsPage
-            connectionState={bridge.connectionState}
-            connectionMessage={bridge.connectionMessage}
             desktopVersion={bridge.desktopVersion}
             token={bridge.token}
             serverUrl={bridge.serverUrl}
@@ -109,17 +101,7 @@ export function App({
             onRefreshConnection={bridge.refreshConnection}
             onRequestPairing={bridge.requestPairing}
             themePreference={themePreference}
-            resolvedThemePreference={resolvedThemePreference}
             onThemePreferenceChange={onThemePreferenceChange}
-            domainBlacklist={bridge.domainBlacklist}
-            typeBlacklist={bridge.typeBlacklist}
-            sizeBlacklistMB={bridge.sizeBlacklistMB}
-            onSaveDomainBlacklist={bridge.saveDomainBlacklist}
-            onSaveTypeBlacklist={bridge.saveTypeBlacklist}
-            onSaveSizeBlacklist={bridge.saveSizeBlacklist}
-            notifyOnTaskCreated={bridge.notifyOnTaskCreated}
-            updatingNotifyOnTaskCreated={bridge.isUpdatingNotifyOnTaskCreated}
-            onNotifyOnTaskCreatedChange={(next) => void bridge.setNotifyOnTaskCreated(next)}
           />
         ) : null}
       </main>

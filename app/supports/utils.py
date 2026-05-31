@@ -1,17 +1,18 @@
 import re
+import shutil
 import sys
 from datetime import datetime
 from functools import wraps
+from http.cookiejar import CookieJar
 from pathlib import Path
 from time import sleep
 from typing import TYPE_CHECKING, Callable
-
-from http.cookiejar import CookieJar
-from niquests.cookies import RequestsCookieJar, cookiejar_from_dict
 from urllib.request import getproxies
+
 from PySide6.QtCore import QUrl, Qt, QProcess
 from PySide6.QtGui import QDesktopServices
 from loguru import logger
+from niquests.cookies import RequestsCookieJar, cookiejar_from_dict
 from qfluentwidgets import MessageBox, ToolButton, FluentIcon
 
 from app.supports.config import cfg
@@ -184,6 +185,31 @@ def toExecutable(name: str) -> str:
     return f"{name}.exe" if sys.platform == "win32" else name
 
 
+def findExecutable(installFolder: Path, name: str, *subdirs: str) -> str:
+    exe = toExecutable(name)
+    candidates = [installFolder / sub / exe for sub in subdirs]
+    candidates.append(installFolder / exe)
+    for candidate in candidates:
+        if candidate.is_file():
+            return toPosixPath(candidate)
+    found = shutil.which(name)
+    return toPosixPath(found) if found else ""
+
+
+def removePath(path: Path):
+    try:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.is_file() or path.is_symlink():
+            path.unlink(missing_ok=True)
+    except FileNotFoundError:
+        return
+    except PermissionError:
+        logger.warning("skip removing busy {}", path)
+    except Exception as e:
+        logger.opt(exception=e).error("failed to remove {}", path)
+
+
 def toBytes(value: str, unit: str) -> int:
     _SCALE = {"B": 1, "KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3,
               "Bps": 1, "KBps": 1024, "MBps": 1024 ** 2, "GBps": 1024 ** 3}
@@ -294,6 +320,45 @@ def bringWindowToTop(window) -> None:
     )
     window.raise_()
     window.activateWindow()
+
+    if sys.platform == "win32":
+        try:
+            _bringWindowToTopOnWindows(int(window.winId()))
+        except Exception as e:
+            logger.opt(exception=e).warning("Failed to bring window to top on Windows")
+
+
+def _bringWindowToTopOnWindows(hwnd: int) -> None:
+    import win32api
+    import win32con
+    import win32gui
+    import win32process
+
+    if win32gui.IsIconic(hwnd):
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+    foregroundHwnd = win32gui.GetForegroundWindow()
+    foregroundThreadId = (
+        win32process.GetWindowThreadProcessId(foregroundHwnd)[0]
+        if foregroundHwnd
+        else 0
+    )
+    currentThreadId = win32api.GetCurrentThreadId()
+    attached = False
+
+    try:
+        if foregroundThreadId and foregroundThreadId != currentThreadId:
+            win32process.AttachThreadInput(currentThreadId, foregroundThreadId, True)
+            attached = True
+
+        win32gui.BringWindowToTop(hwnd)
+        win32gui.SetForegroundWindow(hwnd)
+        flags = win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW
+        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, flags)
+        win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+    finally:
+        if attached:
+            win32process.AttachThreadInput(currentThreadId, foregroundThreadId, False)
 
 
 def showMessageBox(

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal, QFileInfo, Qt, QEvent, QMimeData
+from PySide6.QtCore import Signal, QFileInfo, Qt, QEvent
 from PySide6.QtGui import QColor, QPainter, QPen, QMouseEvent
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QFileIconProvider, QVBoxLayout, QApplication
 from loguru import logger
@@ -13,9 +13,9 @@ from qfluentwidgets import BodyLabel, isDarkTheme, CardWidget, CheckBox, \
 from app.bases.models import Task, TaskStatus, SpecialFileSize
 from app.services.category_service import UNCATEGORIZED_ID, categoryService
 from app.services.core_service import coreService
-from app.supports.recorder import taskRecorder
+from app.supports.config import cfg
+from app.services.task_service import taskService
 from app.supports.utils import openFile, toReadableSize, toReadableTime, openFolder
-from app.supports.config import cfg, GD3_COPY_MIME_TYPE
 from app.view.components.dialogs import DeleteTaskDialog, FileHashDialog
 from app.view.components.labels import IconBodyLabel, IconStrongBodyLabel
 
@@ -24,6 +24,7 @@ class ResultCard(QWidget):
     """显示下载链接解析结果的卡片组件"""
 
     categoryPicked = Signal(str)
+    editRequested = Signal()
 
     def __init__(self, task: Task, parent: QWidget = None):
         super().__init__(parent)
@@ -32,8 +33,17 @@ class ResultCard(QWidget):
 
         self.categoryButton = TransparentToolButton(self)
         self.categoryMenu = RoundMenu(parent=self.categoryButton)
+        self.editButton = TransparentToolButton(FluentIcon.EDIT, self)
 
         self._initCategoryButton()
+        self._initEditButton()
+
+    def _initEditButton(self):
+        self.editButton.setFixedSize(28, 28)
+        self.editButton.setToolTip(self.tr("编辑任务参数"))
+        self.editButton.installEventFilter(ToolTipFilter(self.editButton))
+        self.editButton.clicked.connect(self.editRequested.emit)
+        self.editButton.setVisible(self.task.supportsEdit)
 
     def _initCategoryButton(self):
         self.categoryButton.setFixedSize(28, 28)
@@ -155,7 +165,6 @@ class ParseSettingCard(QWidget):
 class TaskCard(CardWidget):
     """ Task card base class """
 
-    deleted = Signal()
     finished = Signal()
     selectionChanged = Signal(bool, bool)
     categoryChanged = Signal()
@@ -170,6 +179,9 @@ class TaskCard(CardWidget):
 
         self.checkBox.clicked.connect(lambda checked: self.selectionChanged.emit(checked, False))
 
+    def refresh(self):
+        raise NotImplementedError
+
     def setSelectionMode(self, isSelected: bool):
         self.isSelectionMode = isSelected
         self.checkBox.setVisible(isSelected)
@@ -177,9 +189,6 @@ class TaskCard(CardWidget):
             self.checkBox.setChecked(False)
 
         self.update()
-
-    def refresh(self):
-        raise NotImplementedError
 
     def isChecked(self):
         return self.checkBox.isChecked()
@@ -213,18 +222,27 @@ class TaskCard(CardWidget):
             logger.warning("failed to stop task {} before deletion: {}", self.task.taskId, error)
             return
 
-        self.deleted.emit()
+        if deleteFile:
+            self.task.cleanup()
 
-        try:
-            self.onTaskDeleted(deleteFile)
-        except Exception as e:
-            logger.opt(exception=e).error("failed to delete task resources {}", self.task.taskId)
+        taskService.remove(self.task)
 
     def createContextMenu(self) -> RoundMenu | None:
         menu = RoundMenu(parent=self)
         copyUrlAction = Action(FluentIcon.COPY, self.tr("复制下载链接"), self)
-        copyUrlAction.triggered.connect(self._copyTaskUrl)
+        copyUrlAction.triggered.connect(lambda: QApplication.clipboard().setText(self.task.url))
         menu.addAction(copyUrlAction)
+
+        canEdit = (
+            self.task.supportsEdit
+            and self.task.status != TaskStatus.COMPLETED
+            and (self.task.status != TaskStatus.RUNNING or self.task.canPause)
+        )
+        if canEdit:
+            editAction = Action(FluentIcon.EDIT, self.tr("编辑任务参数..."), self)
+            editAction.triggered.connect(self._onEditTaskClicked)
+            menu.addAction(editAction)
+
         redownloadAction = Action(FluentIcon.UPDATE, self.tr("重新下载"), self)
         redownloadAction.triggered.connect(self.redownloadTask)
         menu.addAction(redownloadAction)
@@ -254,19 +272,12 @@ class TaskCard(CardWidget):
         if self.task.category == categoryId:
             return
         self.task.category = categoryId
-        taskRecorder.flush()
+        taskService.scheduleFlush()
         self._onCategoryUpdated()
         self.categoryChanged.emit()
 
     def _onCategoryUpdated(self):
         pass
-
-    def _copyTaskUrl(self):
-        clipboard = QApplication.clipboard()
-        mimeData = QMimeData()
-        mimeData.setText(self.task.url)
-        mimeData.setData(GD3_COPY_MIME_TYPE, b"1")
-        clipboard.setMimeData(mimeData)
 
     def mouseReleaseEvent(self, e):
         super().mouseReleaseEvent(e)
@@ -301,6 +312,14 @@ class TaskCard(CardWidget):
 
         w.deleteLater()
 
+    def _onEditTaskClicked(self):
+        from app.view.components.edit_task_dialog import EditTaskDialog
+
+        dialog = EditTaskDialog(self.task, context="task", parent=self.window())
+        dialog.exec()
+        dialog.deleteLater()
+        self.refresh()
+
 
     def paintEvent(self, e):
         if self.isSelectionMode and self.isChecked():
@@ -316,12 +335,6 @@ class TaskCard(CardWidget):
 
     def onTaskFinished(self):
         self.finished.emit()
-
-    def onTaskDeleted(self, completely: bool = False):
-        if not completely:
-            return
-
-        raise NotImplementedError
 
     def onTaskFailed(self):
         raise NotImplementedError
@@ -354,10 +367,8 @@ class UniversalTaskCard(TaskCard):
         else:
             self.progressBar = ProgressBar(self)
             self.progressBar.setCustomBackgroundColor(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0))
-        # init widgets
         self.infoLabel.hide()
-        # self.infoLabel.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        # init
+
         self.initLayout()
         self.connectSignalToSlot()
         self._refreshIconLabel()
@@ -430,17 +441,7 @@ class UniversalTaskCard(TaskCard):
         return None
 
     def _renderTaskState(self):
-        division = len(self.task.stages)
-        progress = 0
-        speed = 0
-        receivedBytes = 0
-
-        for stage in self.task.stages:
-            progress += stage.progress
-            speed += stage.speed
-            receivedBytes += stage.receivedBytes
-
-        progress /= division
+        progress, speed, receivedBytes = self.task.currentSnapshot()
 
         self.progressBar.setValue(progress)
 
@@ -458,10 +459,8 @@ class UniversalTaskCard(TaskCard):
                 self.progressLabel.show()
             self.speedLabel.setText(f"{toReadableSize(speed)}/s")
             if self.task.fileSize > 0:
-                self.progressLabel.setText(f"{toReadableSize(receivedBytes)}/{toReadableSize(self.task.fileSize)}")
                 self.leftTimeLabel.setText(toReadableTime(int((self.task.fileSize - receivedBytes) / speed)) if speed != 0 else "--m--s")
             else:
-                self.progressLabel.setText(f"{toReadableSize(receivedBytes)}/--")
                 self.leftTimeLabel.setText("--")
         elif self.task.status == TaskStatus.COMPLETED:
             if self.task.fileSize > 0:
@@ -473,10 +472,6 @@ class UniversalTaskCard(TaskCard):
         elif self.task.status == TaskStatus.FAILED:
             self.progressBar.error()
             self.onTaskFailed()
-        elif self.task.status == TaskStatus.PAUSED:
-            self.progressBar.setError(False)
-            self.progressBar.pause()
-            self.showStatusInfo(self.statusInfoText() or "")
         else:
             self.progressBar.setError(False)
             self.progressBar.pause()
@@ -485,7 +480,6 @@ class UniversalTaskCard(TaskCard):
         self.refreshToggleButton()
 
     def refresh(self):
-        """通过 self.task 刷新界面"""
         if self.cardStatus == TaskStatus.COMPLETED or self.cardStatus == TaskStatus.FAILED:
             return
 
@@ -495,40 +489,15 @@ class UniversalTaskCard(TaskCard):
         self._renderTaskState()
 
         if self.task.status != self.cardStatus:
-            taskRecorder.flush()
+            taskService.scheduleFlush()
             self.cardStatus = self.task.status
 
     def onTaskFinished(self):
         super().onTaskFinished()
+        # M3U8 等 pack 在 _updateOutput 时才知道真实文件名，会调用 task.setTitle 改写 title
+        self.filenameLabel.setText(self.task.title)
         self._refreshIconLabel()
 
-    def onTaskDeleted(self, completely: bool = False):
-        if not completely:
-            return
-
-        candidates: set[Path] = set()
-        if self.task.outputFolder:
-            candidates.add(Path(self.task.outputFolder))
-        for stage in self.task.stages:
-            outputFile = getattr(stage, "outputFile", None)
-            if outputFile:
-                candidates.add(Path(outputFile))
-
-        for target in candidates:
-            if not target:
-                continue
-
-            for path in (target, Path(str(target) + ".ghd")):
-                try:
-                    if path.is_file() or path.is_symlink():
-                        path.unlink()
-                except FileNotFoundError:
-                    continue
-                except PermissionError:
-                    logger.warning("skip removing busy file {}", path)
-                    continue
-                except Exception as e:
-                    logger.opt(exception=e).error("failed to remove file {}", path)
 
     def onTaskFailed(self):
         message = self.task.lastError
@@ -572,12 +541,12 @@ class UniversalTaskCard(TaskCard):
             return
 
         try:
-            self.onTaskDeleted(True)
+            self.task.cleanup()
             self.task.reset()
             self.cardStatus = self.task.status
             self._refreshIconLabel()
             self._renderTaskState()
-            taskRecorder.flush()
+            taskService.scheduleFlush()
             self.resumeTask()
             self.progressBar.show()
         except Exception as e:
@@ -591,7 +560,7 @@ class UniversalTaskCard(TaskCard):
         coreService.createTask(self.task)
         self.cardStatus = self.task.status
         self._renderTaskState()
-        taskRecorder.flush()
+        taskService.scheduleFlush()
         self.toggleRunningStatusButton.setEnabled(True)
 
     def pauseTask(self):
@@ -603,7 +572,7 @@ class UniversalTaskCard(TaskCard):
         coreService.stopTask(self.task)
         self.cardStatus = self.task.status
         self._renderTaskState()
-        taskRecorder.flush()
+        taskService.scheduleFlush()
         self.toggleRunningStatusButton.setEnabled(True)
 
     def initLayout(self):
@@ -665,6 +634,7 @@ class UniversalResultCard(ResultCard):
         self.mainLayout.addWidget(self.filenameLabel, 1)
         self.mainLayout.addWidget(self.filenameEdit, 1)
         self.mainLayout.addWidget(self.sizeLabel)
+        self.mainLayout.addWidget(self.editButton)
         self.mainLayout.addWidget(self.categoryButton)
 
     def eventFilter(self, obj, event: QEvent):

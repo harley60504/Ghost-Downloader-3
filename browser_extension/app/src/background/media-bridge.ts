@@ -1,10 +1,7 @@
-import { filenameFromUrl, shorten } from "../shared/utils";
-import type { MediaItemOption, MediaPlaybackState } from "../shared/types";
-import { MAIN_FRAME_ID } from "./constants";
-import {
-  sendMessageToTab,
-  type TabMessageResult,
-} from "./chrome-helpers";
+import {filenameFromUrl, truncate} from "../shared/utils";
+import type {MediaItemOption, MediaPlaybackState} from "../shared/types";
+import {MAIN_FRAME_ID} from "./constants";
+import {sendMessageToTab, type TabMessageResult,} from "./chrome-helpers";
 
 type RawMediaState = {
   count: number;
@@ -35,12 +32,9 @@ export function createMediaBridge() {
   function createEmptyPlaybackState(message = "当前未检测到可控制媒体"): MediaPlaybackState {
     return {
       available: false,
-      stale: false,
       message,
       tabId: null,
       mediaIndex: -1,
-      frameId: 0,
-      count: 0,
       currentTime: 0,
       duration: 0,
       progress: 0,
@@ -49,7 +43,6 @@ export function createMediaBridge() {
       loop: false,
       muted: false,
       speed: 1,
-      mediaType: "",
     };
   }
 
@@ -65,8 +58,7 @@ export function createMediaBridge() {
       const src = srcList[index] ?? `media-${index + 1}`;
       return {
         index,
-        label: shorten(filenameFromUrl(src) || src.split("/").pop() || src, 48),
-        type: "video" as const,
+        label: truncate(filenameFromUrl(src) || src.split("/").pop() || src, 48),
       };
     });
   }
@@ -113,12 +105,9 @@ export function createMediaBridge() {
 
     const playbackState: MediaPlaybackState = {
       available: true,
-      stale: false,
       message: "",
       tabId,
       mediaIndex,
-      frameId: 0,
-      count,
       currentTime: Number(state.currentTime ?? 0),
       duration: Number(state.duration ?? 0),
       progress: Number(state.time ?? 0),
@@ -127,7 +116,6 @@ export function createMediaBridge() {
       loop: Boolean(state.loop ?? false),
       muted: Boolean(state.muted ?? false),
       speed: Number(state.speed ?? 1),
-      mediaType: "video",
     };
 
     if (mediaControlTarget.tabId !== tabId || mediaControlTarget.index !== mediaIndex) {
@@ -144,7 +132,7 @@ export function createMediaBridge() {
     mediaControlTarget = { tabId, index };
   }
 
-  function handleTabRemoved(tabId: number) {
+  function onTabRemoved(tabId: number) {
     if (mediaControlTarget.tabId === tabId) {
       mediaControlTarget = { tabId: 0, index: -1 };
     }
@@ -152,7 +140,7 @@ export function createMediaBridge() {
 
   return {
     buildPanelState,
-    handleTabRemoved,
+    onTabRemoved,
     setMediaIndex,
   };
 }
