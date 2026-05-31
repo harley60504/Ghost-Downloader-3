@@ -28,6 +28,14 @@ export function isFirefoxExtension(): boolean {
   return extensionBrowserTarget() === "firefox";
 }
 
+export function isAndroidFirefoxLike(): boolean {
+  try {
+    return isFirefoxExtension() && /Android/i.test(globalThis.navigator?.userAgent ?? "");
+  } catch {
+    return false;
+  }
+}
+
 export function installDirectory(): string {
   return isFirefoxExtension() ? "browser_extension/firefox" : "browser_extension/chromium";
 }

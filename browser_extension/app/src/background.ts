@@ -25,12 +25,18 @@ import {
     openActionPopup,
     queryTabs,
 } from "./background/chrome-helpers";
-import {onSendHeadersExtraInfoSpec, supportsDownloadDeterminingFilename,} from "./shared/browser";
+import {
+  isAndroidFirefoxLike,
+  isFirefoxExtension,
+  onSendHeadersExtraInfoSpec,
+  supportsDownloadDeterminingFilename,
+} from "./shared/browser";
 
 const desktopBridge = createDesktopBridge();
 const resourceBridge = createResourceBridge({
   sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
   onTaskCreated: (message) => showTaskCreatedNotification(message),
+  shouldBlockDownload: shouldBlockByBlacklist,
 });
 const featureBridge = createFeatureBridge();
 const mediaBridge = createMediaBridge();
@@ -136,12 +142,29 @@ async function showTaskCreatedNotification(message?: string) {
   }
 
   try {
-    await chrome.notifications.create({
+    const notificationPayload = {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon128.png"),
       title: "Ghost Downloader",
       message: message?.trim() || "新任务已成功加入 Ghost Downloader",
-    });
+    } as const;
+
+    if (chrome.notifications?.create) {
+      await chrome.notifications.create(notificationPayload);
+      return;
+    }
+
+    const browserApi = (globalThis as unknown as {
+      browser?: {
+        notifications?: {
+          create?: (options: typeof notificationPayload) => Promise<string> | string;
+        };
+      };
+    }).browser;
+
+    if (browserApi?.notifications?.create) {
+      await browserApi.notifications.create(notificationPayload);
+    }
   } catch {
     // Notifications are best-effort across browsers and platforms.
   }
@@ -310,16 +333,18 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   void injectMediaDownloadOverlay(activeInfo.tabId);
 });
 
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) {
-    return;
-  }
-  void resourceBridge.refreshActiveTabFromBrowser().then((tabId) => {
-    if (tabId != null) {
-      void injectMediaDownloadOverlay(tabId);
+if (!isAndroidFirefoxLike()) {
+  chrome.windows.onFocusChanged.addListener((windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) {
+      return;
     }
+    void resourceBridge.refreshActiveTabFromBrowser().then((tabId) => {
+      if (tabId != null) {
+        void injectMediaDownloadOverlay(tabId);
+      }
+    });
   });
-});
+}
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   resourceBridge.onTabRemoved(tabId);
@@ -383,15 +408,28 @@ function reply(sendResponse: (response?: unknown) => void, response: Promise<unk
   return true;
 }
 
-if (supportsDownloadDeterminingFilename()) {
-  chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-    suggest();
-    void interceptBrowserDownload(downloadItem);
-  });
-} else if (chrome.downloads.onCreated?.addListener) {
-  chrome.downloads.onCreated.addListener((downloadItem) => {
-    void interceptBrowserDownload(downloadItem, { eraseFromHistory: true });
-  });
+if (isFirefoxExtension()) {
+  chrome.webRequest.onHeadersReceived.addListener(
+    (details) => {
+      if (!interceptDownloads || !desktopBridge.isReady() || !/^https?:/i.test(details.url)) {
+        return undefined;
+      }
+      return resourceBridge.tryInterceptFirefoxDownload(details);
+    },
+    { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
+    ["blocking", "responseHeaders"] as chrome.webRequest.OnHeadersReceivedOptions[],
+  );
+} else {
+  if (supportsDownloadDeterminingFilename()) {
+    chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+      suggest();
+      void interceptBrowserDownload(downloadItem);
+    });
+  } else if (chrome.downloads.onCreated?.addListener) {
+    chrome.downloads.onCreated.addListener((downloadItem) => {
+      void interceptBrowserDownload(downloadItem, { eraseFromHistory: true });
+    });
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
