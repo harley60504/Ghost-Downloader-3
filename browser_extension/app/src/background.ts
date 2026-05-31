@@ -30,7 +30,6 @@ import {onSendHeadersExtraInfoSpec, supportsDownloadDeterminingFilename,} from "
 const desktopBridge = createDesktopBridge();
 const resourceBridge = createResourceBridge({
   sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
-  shouldBlockDownload: shouldBlockByBlacklist,
   onTaskCreated: (message) => showTaskCreatedNotification(message),
 });
 const featureBridge = createFeatureBridge();
