@@ -1,12 +1,12 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Signal, QFileInfo, Qt, QEvent
-from PySide6.QtGui import QColor, QPainter, QPen, QMouseEvent
+from PySide6.QtCore import Signal, QFileInfo, Qt
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QFileIconProvider, QVBoxLayout, QApplication
 from loguru import logger
 from qfluentwidgets import BodyLabel, isDarkTheme, CardWidget, CheckBox, \
-    themeColor, IconWidget, ImageLabel, StrongBodyLabel, FluentIcon, PrimaryToolButton, ToolButton, \
+    themeColor, IconWidget, ImageLabel, FluentIcon, PrimaryToolButton, ToolButton, \
     TransparentToolButton, ProgressBar, IndeterminateProgressBar, LineEdit, \
     RoundMenu, Action, ToolTipFilter
 
@@ -17,7 +17,7 @@ from app.supports.config import cfg
 from app.services.task_service import taskService
 from app.supports.utils import openFile, toReadableSize, toReadableTime, openFolder
 from app.view.components.dialogs import DeleteTaskDialog, FileHashDialog
-from app.view.components.labels import IconBodyLabel, IconStrongBodyLabel
+from app.view.components.labels import IconBodyLabel, IconStrongBodyLabel, EditableLabel
 
 
 class ResultCard(QWidget):
@@ -212,6 +212,9 @@ class TaskCard(CardWidget):
         raise NotImplementedError
 
     def removeTask(self, deleteFile=False):
+        if coreService.task(self.task.taskId) is None:
+            self._onTaskStoppedForDeletion(deleteFile)
+            return
         coreService.runCoroutine(
             coreService._stopTask(self.task),
             lambda _result, error: self._onTaskStoppedForDeletion(deleteFile, error),
@@ -223,7 +226,11 @@ class TaskCard(CardWidget):
             return
 
         if deleteFile:
-            self.task.cleanup()
+            # InstallTask.cleanup 删整个 installFolder, 工具进程占用时会抛
+            try:
+                self.task.cleanup()
+            except Exception as e:
+                logger.opt(exception=e).error("failed to clean up task resources {}", self.task.taskId)
 
         taskService.remove(self.task)
 
@@ -313,9 +320,21 @@ class TaskCard(CardWidget):
         w.deleteLater()
 
     def _onEditTaskClicked(self):
+        # 等 _stopTask 完成再开 Dialog, 否则 createTask 撞 runningTasks 旧 entry
+        if self.task.status == TaskStatus.RUNNING and self.task.canPause:
+            coreService.runCoroutine(
+                coreService._stopTask(self.task),
+                lambda *_: self._openEditTaskDialog(autoResume=True),
+            )
+        else:
+            self._openEditTaskDialog(autoResume=False)
+
+    def _openEditTaskDialog(self, autoResume: bool):
         from app.view.components.edit_task_dialog import EditTaskDialog
 
-        dialog = EditTaskDialog(self.task, context="task", parent=self.window())
+        dialog = EditTaskDialog(
+            self.task, context="task", autoResume=autoResume, parent=self.window()
+        )
         dialog.exec()
         dialog.deleteLater()
         self.refresh()
@@ -362,11 +381,7 @@ class UniversalTaskCard(TaskCard):
         self.openFileButton = ToolButton(FluentIcon.LINK, self)
         self.openFolderButton = ToolButton(FluentIcon.FOLDER, self)
         self.cancelButton = TransparentToolButton(FluentIcon.CLOSE, self)
-        if self.task.fileSize in {SpecialFileSize.UNKNOWN, SpecialFileSize.NOT_SUPPORTED}:
-            self.progressBar = IndeterminateProgressBar(self)
-        else:
-            self.progressBar = ProgressBar(self)
-            self.progressBar.setCustomBackgroundColor(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0))
+        self.progressBar = self.createProgressBar()
         self.infoLabel.hide()
 
         self.initLayout()
@@ -377,6 +392,13 @@ class UniversalTaskCard(TaskCard):
 
         cfg.enableCategory.valueChanged.connect(self._renderCategoryIcon)
         categoryService.categoriesChanged.connect(self._renderCategoryIcon)
+
+    def createProgressBar(self) -> QWidget:
+        if self.task.fileSize in {SpecialFileSize.UNKNOWN, SpecialFileSize.NOT_SUPPORTED}:
+            return IndeterminateProgressBar(self)
+        bar = ProgressBar(self)
+        bar.setCustomBackgroundColor(QColor(0, 0, 0, 0), QColor(0, 0, 0, 0))
+        return bar
 
     def _renderCategoryIcon(self):
         if not cfg.enableCategory.value or not self.task.category:
@@ -605,7 +627,7 @@ class UniversalResultCard(ResultCard):
     def __init__(self, task: Task, parent: QWidget = None):
         super().__init__(task, parent)
         self.iconLabel = ImageLabel(self)
-        self.filenameLabel = StrongBodyLabel(self.task.title, self)
+        self.filenameLabel = EditableLabel(self.task.title, self, onEdit=self._enterEditMode)
         self.filenameEdit = LineEdit(self)
         self.sizeLabel = BodyLabel(toReadableSize(self.task.fileSize), self)
         self.mainLayout = QHBoxLayout(self)
@@ -618,10 +640,6 @@ class UniversalResultCard(ResultCard):
         """初始化组件属性"""
         self.setFixedHeight(35)
         self.resetFileIcon()
-        # 设置文件名标签
-        self.filenameLabel.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.filenameLabel.installEventFilter(self)
-        # 设置编辑框
         self.filenameEdit.setText(self.task.title)
         self.filenameEdit.editingFinished.connect(self._onEditingFinished)
         self.filenameEdit.hide()
@@ -636,15 +654,6 @@ class UniversalResultCard(ResultCard):
         self.mainLayout.addWidget(self.sizeLabel)
         self.mainLayout.addWidget(self.editButton)
         self.mainLayout.addWidget(self.categoryButton)
-
-    def eventFilter(self, obj, event: QEvent):
-        """事件过滤器，处理双击事件"""
-        if obj is self.filenameLabel:
-            if event.type() == QEvent.Type.MouseButtonDblClick and isinstance(event, QMouseEvent):
-                if event.button() == Qt.MouseButton.LeftButton:
-                    self._enterEditMode()
-                    return True
-        return super().eventFilter(obj, event)
 
     def resetFileIcon(self):
         icon = QFileIconProvider().icon(QFileInfo(self.task.outputFolder))

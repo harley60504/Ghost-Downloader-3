@@ -12,7 +12,7 @@ from qfluentwidgets import RangeSettingCard, FluentIcon, SwitchSettingCard, Push
 
 from app.services.browser_service import BrowserService
 from app.supports.config import cfg, EDGE_ADDONS_URL, FIREFOX_ADDONS_URL, AUTHOR_URL, AUTHOR, YEAR, \
-    VERSION, FEEDBACK_URL
+    VERSION, FEEDBACK_URL, DESKTOP_ID
 from app.supports.utils import openAppLogFolder
 from app.view.components.category_settings import CategoryRulesCard
 from app.view.components.setting_card_group import CollapsibleSettingCardGroup
@@ -66,7 +66,13 @@ class SettingPage(ScrollArea):
 
         keyToWidget = {g.objectName(): g for g in groups}
         order = [k for k in cfg.settingGroupOrder.value if k in keyToWidget]
-        order += [k for k in keyToWidget if k not in order]
+        rest = [k for k in keyToWidget if k not in order]
+
+        aboutKey = self.aboutGroup.objectName()
+        if aboutKey in rest:
+            rest.remove(aboutKey)
+            rest.append(aboutKey)
+        order += rest
 
         for idx, key in enumerate(order):
             self.vBoxLayout.insertWidget(idx, keyToWidget[key])
@@ -301,6 +307,27 @@ class SettingPage(ScrollArea):
                 parent=self.personalGroup,
             )
             self.personalGroup.addSettingCard(self.showDockIconCard)
+
+            self.showDockSpeedCard = SwitchSettingCard(
+                FluentIcon.SPEED_HIGH,
+                self.tr("在 Dock 图标上显示实时速度"),
+                self.tr("下载时在程序坞图标上叠加当前速度"),
+                configItem=cfg.showDockSpeed,
+                parent=self.personalGroup,
+            )
+            # Dock 隐藏时无 tile 可画, 此卡置灰
+            self.showDockSpeedCard.setEnabled(cfg.showDockIcon.value)
+            cfg.showDockIcon.valueChanged.connect(self.showDockSpeedCard.setEnabled)
+            self.personalGroup.addSettingCard(self.showDockSpeedCard)
+
+            self.showMenuBarSpeedCard = SwitchSettingCard(
+                FluentIcon.SPEED_HIGH,
+                self.tr("在菜单栏显示实时速度"),
+                self.tr("下载时在菜单栏图标旁显示当前速度"),
+                configItem=cfg.showMenuBarSpeed,
+                parent=self.personalGroup,
+            )
+            self.personalGroup.addSettingCard(self.showMenuBarSpeedCard)
         self.languageCard = ComboBoxSettingCard(
             cfg.language,
             FluentIcon.LANGUAGE,
@@ -546,30 +573,26 @@ class SettingPage(ScrollArea):
                     f"/Users/{getpwuid(os.getuid()).pw_name}/Library/LaunchAgents/com.xiaoyouchr.ghostdownloader.plist"
                 )
         elif sys.platform == "linux":
-            from getpass import getuser
+            autoStartDir = Path.home() / ".config/autostart"
+            desktopFile = autoStartDir / f"{DESKTOP_ID}.desktop"
+            legacyFile = autoStartDir / "gd3.desktop"  # 旧版固定名, 迁移时一并清掉
             if value:
-                autoStartPath = Path(f"/home/{getuser()}/.config/autostart/")
-                if not autoStartPath.exists():
-                    autoStartPath.mkdir(parents=True, exist_ok=True)
-
-                with open(
-                    f"/home/{getuser()}/.config/autostart/gd3.desktop",
-                    "w",
+                autoStartDir.mkdir(parents=True, exist_ok=True)
+                desktopFile.write_text(
+                    "[Desktop Entry]\n"
+                    "Type=Application\n"
+                    f"Version={VERSION}\n"
+                    "Name=Ghost Downloader 3\n"
+                    "Comment=A multi-threading downloader with QThread based on PySide6\n"
+                    f'Exec="{QCoreApplication.applicationFilePath()}" --silence\n'
+                    "StartupNotify=false\n"
+                    "Terminal=false\n",
                     encoding="utf-8",
-                ) as f:
-                    _ = f"""[Desktop Entry]
-                        Type=Application
-                        Version={VERSION}
-                        Name=Ghost Downloader 3
-                        Comment=A multi-threading downloader with QThread based on PySide6
-                        Exec="{QCoreApplication.applicationFilePath()}" --silence
-                        StartupNotify=false
-                        Terminal=false
-                        """
-                    f.write(_)
-                    f.flush()
+                )
+                legacyFile.unlink(missing_ok=True)
             else:
-                os.remove(f"/home/{getuser()}/.config/autostart/gd3.desktop")
+                desktopFile.unlink(missing_ok=True)
+                legacyFile.unlink(missing_ok=True)
 
         else:
             InfoBar.warning(

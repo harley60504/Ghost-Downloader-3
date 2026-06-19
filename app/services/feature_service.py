@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from loguru import logger
 
-from app.bases.interfaces import FeaturePack
+from app.bases.interfaces import FeaturePack, FileType
 from app.bases.models import Task
 from app.supports.paths import executableDir
 
@@ -42,7 +42,7 @@ class FeatureService:
                 featurePacks.append(
                     {
                         "name": item.name,
-                        "path": str(item / manifest["entry"]),
+                        "path": manifest["entryPath"],
                         "directory": str(item),
                         "dependencies": manifest["dependencies"],
                     }
@@ -73,9 +73,11 @@ class FeatureService:
             logger.warning("FeaturePack manifest 的 entry 无效: {}", manifestPath)
             return None
 
-        packPath = packDirectory / entry
-        if not packPath.exists():
-            logger.warning("FeaturePack 入口文件不存在: {}", packPath)
+        entryPath = packDirectory / entry
+        if not entryPath.exists() and entry.endswith(".py"):
+            entryPath = packDirectory / (entry[:-3] + ".pyc")
+        if not entryPath.exists():
+            logger.warning("FeaturePack 入口文件不存在: {}", packDirectory / entry)
             return None
 
         dependencies = packConfig.get("dependencies", [])
@@ -87,7 +89,7 @@ class FeatureService:
             return None
 
         return {
-            "entry": entry,
+            "entryPath": str(entryPath),
             "dependencies": tuple(dependencies),
         }
 
@@ -242,7 +244,9 @@ class FeatureService:
     def taskCard(self, task: Task, parent=None):
         packInstance = self.packOf(task)
         if packInstance is None:
-            raise ValueError(f"未找到 Task 对应的 FeaturePack: {task.packId}")
+            logger.warning("未找到 Task 对应的 FeaturePack, 回落到 UniversalTaskCard: {}", task.packId)
+            from app.view.components.cards import UniversalTaskCard
+            return UniversalTaskCard(task, parent)
         return packInstance.taskCard(task, parent)
 
     def resultCard(self, task: Task, parent=None):
@@ -263,6 +267,15 @@ class FeatureService:
             except Exception as e:
                 logger.opt(exception=e).error("获取 FeaturePack 对话框设置项失败 {}", packName)
         return cards
+
+    def fileTypes(self) -> list[FileType]:
+        types = []
+        for packName, packInstance in self._sortedPacks():
+            try:
+                types.extend(packInstance.fileTypes())
+            except Exception as e:
+                logger.opt(exception=e).error("获取 FeaturePack 文件类型失败 {}", packName)
+        return types
 
     def load(self, mainWindow: "MainWindow"):
         logger.info("开始加载 FeaturePacks")
@@ -295,6 +308,13 @@ class FeatureService:
             return
 
         logger.warning("FeaturePack 加载完成: {}/{} 个成功加载", loadedCount, len(featurePacks))
+
+    def shutdown(self):
+        for packName, packInstance in self._packs.items():
+            try:
+                packInstance.shutdown()
+            except Exception as e:
+                logger.opt(exception=e).error("FeaturePack.shutdown 失败 {}", packName)
 
 
 featureService = FeatureService()

@@ -5,6 +5,8 @@ from re import compile
 
 from PySide6.QtCore import QRect, QStandardPaths, QLocale, QOperatingSystemVersion
 from orjson import dumps, loads
+
+from app.supports.android import IS_ANDROID
 from qfluentwidgets import (
     QConfig,
     ConfigItem,
@@ -109,18 +111,6 @@ class ProxyValidator(ConfigValidator):
 
     def correct(self, value) -> str:
         return value if self.validate(value) else "Auto"
-
-
-class GeometryValidator(ConfigValidator):
-    def validate(self, value: QRect) -> bool:
-        """由于 QScreen 必须在 QApplication 初始化之后调用, 所以由 MainWindow 处理特殊情况"""
-        x, y, w, h = value.x(), value.y(), value.width(), value.height()
-        if x < 0 or y < 0 or w < 0 or h < 0:
-            return False
-        return True
-
-    def correct(self, value) -> QRect:
-        return value if self.validate(value) else QRect(0, 0, 0, 0)
 
 
 class GeometrySerializer(ConfigSerializer):
@@ -229,7 +219,9 @@ class Config(QConfig):
     downloadFolder = ConfigItem(
         "GeneralDownload",
         "DownloadFolder",
-        QStandardPaths.writableLocation(
+        "/storage/emulated/0/Download"
+        if IS_ANDROID
+        else QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DownloadLocation
         ),
         FolderValidator(),
@@ -303,6 +295,8 @@ class Config(QConfig):
         "Personalization", "DpiScale", 0, RangeValidator(0, 5), restart=True
     )
     showDockIcon = ConfigItem("Personalization", "ShowDockIcon", True, BoolValidator())
+    showDockSpeed = ConfigItem("Personalization", "ShowDockSpeed", True, BoolValidator())
+    showMenuBarSpeed = ConfigItem("Personalization", "ShowMenuBarSpeed", True, BoolValidator())
     language = OptionsConfigItem(
         "Personalization",
         "Language",
@@ -324,9 +318,8 @@ class Config(QConfig):
         "Software",
         "Geometry",
         QRect(0, 0, 0, 0),
-        GeometryValidator(),
-        GeometrySerializer(),
-    )  # 由于 QScreen 必须在 QApplication 初始化之后调用, 所以由 MainWindow 处理特殊情况
+        serializer=GeometrySerializer(),
+    )  # 配置层够不到 QScreen，位置可用性留给 MainWindow 首次 show 时判定，这里只管序列化
 
     # 设置页 UI 状态
     collapsedSettingGroups = ConfigItem(
@@ -364,7 +357,9 @@ class Config(QConfig):
 
 YEAR = 2026
 AUTHOR = "XiaoYouChR"
-VERSION = "3.10.1"
+VERSION = "3.10.4"
+DESKTOP_ID = "io.github.xiaoyouchr.GhostDownloader"
+DESKTOP_OBJECT_PATH = "/" + DESKTOP_ID.replace(".", "/")
 LATEST_EXTENSION_VERSION = "1.4.0"
 AUTHOR_URL = "https://space.bilibili.com/437313511"
 FEEDBACK_URL = "https://github.com/XiaoYouChR/Ghost-Downloader-3/issues"

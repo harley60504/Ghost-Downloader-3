@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from PySide6.QtCore import QEvent, QPoint, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QTextOption
-from PySide6.QtWidgets import QDialog, QFileDialog, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QFileDialog, QHBoxLayout, QVBoxLayout
 from qfluentwidgets import (
     Action,
     BodyLabel,
@@ -14,6 +14,7 @@ from qfluentwidgets import (
     InfoBarPosition,
     LineEdit,
     MessageBoxBase,
+    PushButton,
     Slider,
     SubtitleLabel,
 )
@@ -32,11 +33,19 @@ from app.view.components.card_widgets import (
 from app.view.components.cards import ParseSettingCard, ResultCard
 from app.view.components.editors import AutoSizingEdit
 
+if TYPE_CHECKING:
+    from app.view.components.edit_task_dialog import EditTaskDialog
+
 
 class SelectFolderCard(ParseSettingCard):
     def __init__(self, icon, title: str, parent=None, *, initial: Path | None = None) -> None:
-        self._initial = str(initial) if initial is not None else cfg.downloadFolder.value
         super().__init__(icon, title, parent)
+        # super 在 initCustomWidget 里已建好 pathEdit
+        if initial is not None:
+            self.pathEdit.setText(str(initial))
+        else:
+            self.pathEdit.setText(cfg.downloadFolder.value)
+            cfg.downloadFolder.valueChanged.connect(self.pathEdit.setText)
 
     def initCustomWidget(self) -> None:
         self.pathEdit = LineEdit(self)
@@ -50,7 +59,6 @@ class SelectFolderCard(ParseSettingCard):
 
     def _initWidget(self) -> None:
         self.pathEdit.setReadOnly(True)
-        self.pathEdit.setText(self._initial)
 
     def _initLayout(self) -> None:
         self.hBoxLayout.addWidget(self.pathEdit, stretch=3)
@@ -78,7 +86,7 @@ class SelectFolderCard(ParseSettingCard):
         return path.parent
 
     def reset(self) -> None:
-        self.pathEdit.setText(self._initial)
+        self.pathEdit.setText(cfg.downloadFolder.value)
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -131,6 +139,9 @@ class _StandaloneWrapper(FramelessDialog):
         self._initLayout()
 
     def _initWidget(self) -> None:
+        # 禁止拖边缘 resize, 否则会突破最大尺寸
+        self.setResizeEnabled(False)
+
         titleBar = FluentTitleBar(self)
         self.setTitleBar(titleBar)
         self.titleBar.maxBtn.hide()
@@ -180,11 +191,15 @@ class AddTaskDialog(MessageBoxBase):
             self.tr("预分配线程数"),
             self,
         )
+        self.importButton = PushButton(FluentIcon.FOLDER_ADD, self.tr("导入文件"), self)
+
+        self.headerLayout = QHBoxLayout()
 
         self._timer = QTimer(self, singleShot=True)
         self._parseSession = AddTaskParseSession(parent=self)
         self._standaloneWrapper = _StandaloneWrapper(self)
         self._resultCards: dict[str, ResultCard] = {}
+        self._editDialog: "EditTaskDialog | None" = None
 
         self._initWidget()
         self._initLayout()
@@ -206,8 +221,14 @@ class AddTaskDialog(MessageBoxBase):
         for card in featureService.dialogCards(self.settingGroup):
             self.settingGroup.addCard(card)
 
+        self._fileTypes = featureService.fileTypes()
+        self.importButton.setVisible(bool(self._fileTypes))
+
     def _initLayout(self) -> None:
-        self.viewLayout.addWidget(self.titleLabel)
+        self.headerLayout.addWidget(self.titleLabel)
+        self.headerLayout.addStretch(1)
+        self.headerLayout.addWidget(self.importButton)
+        self.viewLayout.addLayout(self.headerLayout)
         self.viewLayout.addWidget(self.urlEdit)
         self.viewLayout.addWidget(self.parseProgressBar)
         self.viewLayout.addWidget(self.parseResultGroup)
@@ -226,6 +247,8 @@ class AddTaskDialog(MessageBoxBase):
         self._parseSession.linesReordered.connect(self._onLinesReordered)
         self._parseSession.cleared.connect(self._onSessionCleared)
         self._parseSession.taskConfirmed.connect(self.taskConfirmed.emit)
+
+        self.importButton.clicked.connect(self._onImportClicked)
 
         for card in self.settingGroup.cards:
             card.payloadChanged.connect(
@@ -273,10 +296,13 @@ class AddTaskDialog(MessageBoxBase):
         if task is None:
             return
 
-        dialog = EditTaskDialog(task, context="result", parent=self.window())
-        dialog.urlReplaced.connect(self._onUrlReplaced)
-        dialog.exec()
-        dialog.deleteLater()
+        # standalone 下 self.window() 是隐藏的 mainWindow, 改挂可见的 wrapper
+        parent = self._standaloneWrapper if self.isStandaloneMode else self.window()
+        self._editDialog = EditTaskDialog(task, context="result", parent=parent)
+        self._editDialog.urlReplaced.connect(self._onUrlReplaced)
+        self._editDialog.exec()
+        self._editDialog.deleteLater()
+        self._editDialog = None
 
     def _onUrlReplaced(self, oldUrl: str, newUrl: str) -> None:
         self._replaceUrlInTextarea(oldUrl, newUrl)
@@ -301,6 +327,21 @@ class AddTaskDialog(MessageBoxBase):
         if not text:
             return []
         return [line.strip() for line in text.splitlines() if line.strip()]
+
+    def _onImportClicked(self) -> None:
+        globs = [f"*{ext}" for fileType in self._fileTypes for ext in fileType.extensions]
+        nameFilters = [self.tr("所有可导入文件 ({0})").format(" ".join(globs))]
+        nameFilters += [
+            "{0} ({1})".format(fileType.displayName, " ".join(f"*{ext}" for ext in fileType.extensions))
+            for fileType in self._fileTypes
+        ]
+
+        paths, _ = QFileDialog.getOpenFileNames(self, self.tr("导入文件"), "", ";;".join(nameFilters))
+        if not paths:
+            return
+
+        # 裸路径会被 featureService._toUrl 当成 http:// 处理而失效, 必须转成 file:// URI 才能命中本地文件解析
+        self.addUrls([Path(path).as_uri() for path in paths])
 
     def addUrls(self, urls: list[str]) -> None:
         if not urls:
@@ -353,20 +394,25 @@ class AddTaskDialog(MessageBoxBase):
     def isStandaloneMode(self) -> bool:
         return self.widget.parentWidget() is self._standaloneWrapper
 
+    def _closeEditDialog(self) -> None:
+        # 切换 mask/standalone 会换走父窗口, 先关掉编辑对话框免得它残留 (done 跳过淡出动画)
+        if self._editDialog is not None:
+            QDialog.done(self._editDialog, QDialog.DialogCode.Rejected)
+
     def _toStandalone(self) -> None:
+        self._closeEditDialog()
         self._hBoxLayout.removeWidget(self.widget)
         self._standaloneWrapper.setContent(self.widget)
         self.widget.setStyleSheet("#centerWidget { border: none; border-radius: 0; }")
         self.widget.show()
-        self.titleLabel.hide()
 
     def _toMask(self) -> None:
+        self._closeEditDialog()
         self._standaloneWrapper.hide()
         self._standaloneWrapper.takeContent(self.widget)
         self.widget.setStyleSheet("")
         self._hBoxLayout.addWidget(self.widget, 1, Qt.AlignmentFlag.AlignCenter)
         self.widget.show()
-        self.titleLabel.show()
 
     def showStandalone(self) -> None:
         if self.isStandaloneMode and self._standaloneWrapper.isVisible():
