@@ -1,7 +1,7 @@
 import type {
-    DesktopRequestResult,
-    GenericTaskSummary,
-    PopupStatePayload,
+    CommandResult,
+    TaskSummary,
+    PopupState,
     PopupView,
 } from "./shared/types";
 import type {PopupCommand} from "./shared/popup-protocol";
@@ -10,39 +10,86 @@ import {createFeatureBridge} from "./background/feature-bridge";
 import {createMediaBridge} from "./background/media-bridge";
 import {createResourceBridge} from "./background/resource-bridge";
 import {
-  DOMAIN_BLACKLIST_KEY,
-  INTERCEPT_DOWNLOADS_KEY,
-  MEDIA_DOWNLOAD_OVERLAY_KEY,
-  NOTIFY_ON_TASK_CREATED_KEY,
-  SIZE_BLACKLIST_KEY,
-  TYPE_BLACKLIST_KEY,
+    BYPASS_MODIFIER_KEY,
+    DOMAIN_BLACKLIST_KEY,
+    IS_MEDIA_BUTTON_ENABLED_KEY,
+    MIN_TAKE_SIZE_KB_KEY,
+    NOTIFY_ON_TASK_CREATED_KEY,
+    SIZE_BLACKLIST_KEY,
+    SHOULD_TAKE_UNKNOWN_SIZE_KEY,
+    SHOULD_TAKE_DOWNLOADS_KEY,
+    TYPE_BLACKLIST_KEY,
 } from "./background/constants";
 import {
     cancelDownload,
     eraseDownloadFromHistory,
     findTab,
-    loadFromLocalStorage,
+    loadLocalState,
     openActionPopup,
     queryTabs,
 } from "./background/chrome-helpers";
 import {
-  isAndroidFirefoxLike,
-  isFirefoxExtension,
-  onSendHeadersExtraInfoSpec,
-  supportsDownloadDeterminingFilename,
+    isAndroidFirefoxLike,
+    isFirefoxExtension,
+    onSendHeadersExtraInfoSpec,
+    supportsDownloadDeterminingFilename,
 } from "./shared/browser";
+import {loadBaseIcons, updateIconForTasks} from "./background/icon-progress";
+import {enqueue, flush, pendingCount} from "./background/task-queue";
 
-const desktopBridge = createDesktopBridge();
+async function flushQueue(): Promise<void> {
+  const sent = await flush((payload) => desktopBridge.sendRequest(payload));
+  if (sent > 0) {
+    await openActionPopup();
+  }
+}
+
+async function sendTaskOrEnqueue<T extends CommandResult>(payload: Record<string, unknown>, timeoutMs?: number): Promise<T> {
+  if (desktopBridge.isReady()) {
+    try {
+      return await desktopBridge.sendRequest<T>(payload, timeoutMs);
+    } catch (error) {
+      if (desktopBridge.isReady()) {
+        throw error;
+      }
+    }
+  }
+  await enqueue(payload);
+  return { ok: true, message: chrome.i18n.getMessage("taskQueued") } as T;
+}
+
+const openWhenDoneIds = new Set<string>();
+
+function onTaskSnapshotChanged(tasks: TaskSummary[]): void {
+  updateIconForTasks(tasks);
+  for (const task of tasks) {
+    if (task.status === "completed" && openWhenDoneIds.has(task.taskId)) {
+      openWhenDoneIds.delete(task.taskId);
+      void desktopBridge.sendRequest({
+        type: "task_action",
+        taskId: task.taskId,
+        action: "open_file",
+      });
+    }
+  }
+}
+
+const desktopBridge = createDesktopBridge({
+  onTaskSnapshotChanged,
+  onConnected: () => void flushQueue(),
+});
 const resourceBridge = createResourceBridge({
-  sendDesktopRequest: (payload) => desktopBridge.sendRequest(payload),
+  sendDesktopRequest: (payload) => sendTaskOrEnqueue(payload),
   onTaskCreated: (message) => showTaskCreatedNotification(message),
   shouldBlockDownload: shouldBlockByBlacklist,
 });
 const featureBridge = createFeatureBridge();
 const mediaBridge = createMediaBridge();
 
-let interceptDownloads = true;
-let mediaDownloadOverlayEnabled = true;
+let shouldTakeDownloads = true;
+let isMediaButtonEnabled = true;
+let minTakeSizeKB = 0;
+let shouldTakeUnknownSize = true;
 let domainBlacklist: string[] = [];
 let typeBlacklist: string[] = [];
 let sizeBlacklistMB = "";
@@ -55,123 +102,66 @@ function parseRuleLines(value: string): string[] {
     .filter(Boolean);
 }
 
-function isDomainBlacklisted(rawUrl: string): boolean {
-  try {
-    const hostname = new URL(rawUrl).hostname.toLowerCase();
-    return domainBlacklist.some((rule) => hostname === rule || hostname.endsWith(`.${rule}`));
-  } catch {
-    return false;
-  }
-}
-
-function isTypeBlacklistedByMeta(filename: string, mime: string, rawUrl: string): boolean {
-  const normalizedUrl = String(rawUrl ?? "").toLowerCase();
-  const normalizedFilename = String(filename ?? "").toLowerCase();
-  const normalizedMime = String(mime ?? "").toLowerCase();
-
-  return typeBlacklist.some((rule) => {
-    if (rule.startsWith(".")) {
-      return normalizedUrl.includes(rule) || normalizedFilename.endsWith(rule);
-    }
-    return (
-      normalizedUrl.includes(rule)
-      || normalizedFilename.includes(rule)
-      || normalizedMime.includes(rule)
-    );
-  });
-}
-
 function parseSizeRuleToBytes(value: string): number {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!raw) {
-    return 0;
-  }
-
-  const match = raw.match(/^\s*(?:<|<=)?\s*(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?\s*$/i);
-  if (!match) {
-    return 0;
-  }
-
+  const match = String(value ?? "").trim().match(/^\s*(?:<|<=)?\s*(\d+(?:\.\d+)?)\s*(b|kb|kib|mb|mib|gb|gib)?\s*$/i);
+  if (!match) { return 0; }
   const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return 0;
-  }
-
+  if (!Number.isFinite(amount) || amount <= 0) { return 0; }
   const unit = (match[2] || "mb").toLowerCase();
-  if (unit === "b") {
-    return amount;
-  }
-  if (unit === "kb" || unit === "kib") {
-    return amount * 1024;
-  }
-  if (unit === "gb" || unit === "gib") {
-    return amount * 1024 * 1024 * 1024;
-  }
+  if (unit === "b") { return amount; }
+  if (unit === "kb" || unit === "kib") { return amount * 1024; }
+  if (unit === "gb" || unit === "gib") { return amount * 1024 * 1024 * 1024; }
   return amount * 1024 * 1024;
 }
 
-function isSizeBlacklistedByValue(sizeBytes: number): boolean {
-  const thresholdBytes = parseSizeRuleToBytes(sizeBlacklistMB);
-  if (!Number.isFinite(thresholdBytes) || thresholdBytes <= 0) {
-    return false;
+function shouldBlockByBlacklist(input: { url: string; filename?: string; mime?: string; size?: number }): boolean {
+  let hostname = "";
+  try { hostname = new URL(input.url).hostname.toLowerCase(); } catch { /* invalid URL */ }
+  if (domainBlacklist.some((rule) => hostname === rule || hostname.endsWith(`.${rule}`))) {
+    return true;
   }
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
-    return false;
-  }
-  return sizeBytes < thresholdBytes;
-}
 
-function shouldBlockByBlacklist(input: {
-  url: string;
-  filename?: string;
-  mime?: string;
-  size?: number;
-}): boolean {
-  if (isDomainBlacklisted(input.url)) {
+  const url = input.url.toLowerCase();
+  const filename = String(input.filename ?? "").toLowerCase();
+  const mime = String(input.mime ?? "").toLowerCase();
+  if (typeBlacklist.some((rule) => rule.startsWith(".")
+    ? url.includes(rule) || filename.endsWith(rule)
+    : url.includes(rule) || filename.includes(rule) || mime.includes(rule))) {
     return true;
   }
-  if (isTypeBlacklistedByMeta(input.filename ?? "", input.mime ?? "", input.url)) {
-    return true;
-  }
-  return typeof input.size === "number" && isSizeBlacklistedByValue(input.size);
+
+  const threshold = parseSizeRuleToBytes(sizeBlacklistMB);
+  return threshold > 0 && typeof input.size === "number" && input.size > 0 && input.size < threshold;
 }
 
 async function showTaskCreatedNotification(message?: string) {
-  if (!notifyOnTaskCreated) {
-    return;
-  }
-
+  if (!notifyOnTaskCreated) { return; }
   try {
-    const notificationPayload = {
+    await chrome.notifications.create({
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon128.png"),
       title: "Ghost Downloader",
-      message: message?.trim() || "新任务已成功加入 Ghost Downloader",
-    } as const;
-
-    if (chrome.notifications?.create) {
-      await chrome.notifications.create(notificationPayload);
-      return;
-    }
-
-    const browserApi = (globalThis as unknown as {
-      browser?: {
-        notifications?: {
-          create?: (options: typeof notificationPayload) => Promise<string> | string;
-        };
-      };
-    }).browser;
-
-    if (browserApi?.notifications?.create) {
-      await browserApi.notifications.create(notificationPayload);
-    }
+      message: message?.trim() || "新任務已加入 Ghost Downloader",
+    });
   } catch {
-    // Notifications are best-effort across browsers and platforms.
+    // Notifications are best-effort across browsers.
   }
 }
 
-async function injectMediaDownloadOverlay(tabId: number) {
-  if (!mediaDownloadOverlayEnabled) {
+function imageFilename(url: string, alt: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    const basename = decodeURIComponent(pathname.split("/").pop() || "");
+    if (basename && /\.\w{2,5}$/.test(basename)) {
+      return basename.slice(0, 160);
+    }
+  } catch { /* invalid URL */ }
+  const safe = (alt || "image").replace(/[<>:"/\\|?*\x00-\x1f]+/g, " ").trim().slice(0, 120);
+  return safe || "image";
+}
+
+async function injectMediaButton(tabId: number) {
+  if (!isMediaButtonEnabled) {
     return;
   }
   const tab = await findTab(tabId);
@@ -190,9 +180,9 @@ async function injectMediaDownloadOverlay(tabId: number) {
   }
 }
 
-async function updateMediaDownloadOverlay(enabled: boolean) {
-  mediaDownloadOverlayEnabled = enabled;
-  await chrome.storage.local.set({ [MEDIA_DOWNLOAD_OVERLAY_KEY]: enabled });
+async function setMediaButtonEnabled(enabled: boolean) {
+  isMediaButtonEnabled = enabled;
+  await chrome.storage.local.set({ [IS_MEDIA_BUTTON_ENABLED_KEY]: enabled });
 
   const tabs = await queryTabs({});
   for (const tab of tabs) {
@@ -200,18 +190,18 @@ async function updateMediaDownloadOverlay(enabled: boolean) {
       continue;
     }
     chrome.tabs.sendMessage(tab.id, {
-      type: "media_download_overlay_set_enabled",
+      type: "media_button_set_enabled",
       enabled,
     }, () => {
       const lastError = chrome.runtime.lastError;
       if (enabled && lastError && tab.id) {
-        void injectMediaDownloadOverlay(tab.id);
+        void injectMediaButton(tab.id);
       }
     });
   }
 }
 
-function taskCounters(tasks: GenericTaskSummary[]) {
+function buildTaskCounters(tasks: TaskSummary[]) {
   return {
     total: tasks.length,
     active: tasks.filter((task) => task.status !== "completed").length,
@@ -222,14 +212,14 @@ function taskCounters(tasks: GenericTaskSummary[]) {
 async function buildPopupState(options: {
   preferredTabId?: number | null;
   currentView?: PopupView;
-} = {}): Promise<PopupStatePayload> {
-  const resolvedTabId = await resourceBridge.resolveActiveTabId(options.preferredTabId ?? null);
-  const activeTab = resolvedTabId != null ? await findTab(resolvedTabId) : null;
+} = {}): Promise<PopupState> {
+  const activeTabId = await resourceBridge.currentTabId(options.preferredTabId ?? null);
+  const activeTab = activeTabId != null ? await findTab(activeTabId) : null;
   const desktopState = desktopBridge.buildSnapshot();
-  const resourceState = resourceBridge.buildPopupStateData(resolvedTabId, activeTab);
+  const resourceState = resourceBridge.buildPopupStateData(activeTabId, activeTab);
 
   const mediaPanelState = await mediaBridge.buildPanelState(
-    options.currentView === "advanced" ? resolvedTabId : null,
+    options.currentView === "advanced" ? activeTabId : null,
   );
 
   return {
@@ -238,14 +228,15 @@ async function buildPopupState(options: {
     desktopVersion: desktopState.desktopVersion,
     token: desktopState.token,
     serverUrl: desktopState.serverUrl,
-    interceptDownloads,
-    mediaDownloadOverlayEnabled,
-    tasks: desktopState.tasks,
-    taskCounters: taskCounters(desktopState.tasks),
-    tabId: resolvedTabId,
-    featureStates: featureBridge.createFeatureStateMap(resolvedTabId),
+    shouldTakeDownloads,
+    isMediaButtonEnabled,
+    tasks: desktopState.tasks.map((t) => ({ ...t, shouldOpenWhenDone: openWhenDoneIds.has(t.taskId) })),
+    taskCounters: buildTaskCounters(desktopState.tasks),
+    tabId: activeTabId,
+    featureStates: featureBridge.createFeatureStateMap(activeTabId),
     mediaItems: mediaPanelState.mediaItems,
     mediaPlaybackState: mediaPanelState.playbackState,
+    pendingTaskCount: await pendingCount(),
     domainBlacklist: domainBlacklist.join("\n"),
     typeBlacklist: typeBlacklist.join("\n"),
     sizeBlacklistMB,
@@ -254,44 +245,80 @@ async function buildPopupState(options: {
   };
 }
 
-async function initialize() {
-  const localState = await loadFromLocalStorage<{
-    [INTERCEPT_DOWNLOADS_KEY]: boolean;
-    [MEDIA_DOWNLOAD_OVERLAY_KEY]: boolean;
+async function setupBackground() {
+  const localState = await loadLocalState<{
+    [SHOULD_TAKE_DOWNLOADS_KEY]: boolean;
+    [IS_MEDIA_BUTTON_ENABLED_KEY]: boolean;
+    [MIN_TAKE_SIZE_KB_KEY]: number;
+    [SHOULD_TAKE_UNKNOWN_SIZE_KEY]: boolean;
     [DOMAIN_BLACKLIST_KEY]: string;
     [TYPE_BLACKLIST_KEY]: string;
     [SIZE_BLACKLIST_KEY]: string;
     [NOTIFY_ON_TASK_CREATED_KEY]: boolean;
   }>({
-    [INTERCEPT_DOWNLOADS_KEY]: true,
-    [MEDIA_DOWNLOAD_OVERLAY_KEY]: true,
+    [SHOULD_TAKE_DOWNLOADS_KEY]: true,
+    [IS_MEDIA_BUTTON_ENABLED_KEY]: true,
+    [MIN_TAKE_SIZE_KB_KEY]: 0,
+    [SHOULD_TAKE_UNKNOWN_SIZE_KEY]: true,
     [DOMAIN_BLACKLIST_KEY]: "",
     [TYPE_BLACKLIST_KEY]: "",
     [SIZE_BLACKLIST_KEY]: "",
     [NOTIFY_ON_TASK_CREATED_KEY]: true,
   });
 
-  interceptDownloads = Boolean(localState[INTERCEPT_DOWNLOADS_KEY] ?? true);
-  mediaDownloadOverlayEnabled = Boolean(localState[MEDIA_DOWNLOAD_OVERLAY_KEY] ?? true);
-  domainBlacklist = parseRuleLines(String(localState[DOMAIN_BLACKLIST_KEY] ?? ""));
-  typeBlacklist = parseRuleLines(String(localState[TYPE_BLACKLIST_KEY] ?? ""));
+  shouldTakeDownloads = Boolean(localState[SHOULD_TAKE_DOWNLOADS_KEY] ?? true);
+  isMediaButtonEnabled = Boolean(localState[IS_MEDIA_BUTTON_ENABLED_KEY] ?? true);
+  minTakeSizeKB = Number(localState[MIN_TAKE_SIZE_KB_KEY]) || 0;
+  shouldTakeUnknownSize = Boolean(localState[SHOULD_TAKE_UNKNOWN_SIZE_KEY] ?? true);
+  domainBlacklist = parseRuleLines(localState[DOMAIN_BLACKLIST_KEY]);
+  typeBlacklist = parseRuleLines(localState[TYPE_BLACKLIST_KEY]);
   sizeBlacklistMB = String(localState[SIZE_BLACKLIST_KEY] ?? "").trim();
   notifyOnTaskCreated = Boolean(localState[NOTIFY_ON_TASK_CREATED_KEY] ?? true);
 
+  try {
+    const selfInfo = await chrome.management.getSelf();
+    desktopBridge.setInstallType(selfInfo.installType);
+  } catch {
+    desktopBridge.setInstallType("normal");
+  }
+
+  await loadBaseIcons();
   await desktopBridge.loadPersistentState();
   await resourceBridge.loadPersistentState();
   await featureBridge.loadPersistentState();
-  const activeTabId = await resourceBridge.resolveActiveTabId();
+  const activeTabId = await resourceBridge.currentTabId();
   if (activeTabId != null) {
-    void injectMediaDownloadOverlay(activeTabId);
+    void injectMediaButton(activeTabId);
   }
 
   if (desktopBridge.buildSnapshot().token) {
     void desktopBridge.connect();
   }
 
-  desktopBridge.ensureReconnectAlarm();
+  desktopBridge.setupReconnectAlarm();
 }
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "gd-download-link",
+    title: chrome.i18n.getMessage("downloadWithGhostDownloader"),
+    contexts: ["link"],
+  });
+});
+
+chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId !== "gd-download-link" || !info.linkUrl) { return; }
+  const headers = resourceBridge.headersForPage(info.pageUrl ?? "");
+  if (!headers.referer && info.pageUrl) {
+    headers.referer = info.pageUrl;
+  }
+  void sendTaskOrEnqueue({
+    type: "create_task",
+    source: "download",
+    title: "",
+    payload: { url: info.linkUrl, headers, filename: "", size: 0, supportsRange: false },
+  });
+});
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   desktopBridge.onReconnectAlarm(alarm);
@@ -308,11 +335,17 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
   desktopBridge.onLocalStorageChanged(changes);
-  if (changes[INTERCEPT_DOWNLOADS_KEY]) {
-    interceptDownloads = Boolean(changes[INTERCEPT_DOWNLOADS_KEY].newValue ?? true);
+  if (changes[SHOULD_TAKE_DOWNLOADS_KEY]) {
+    shouldTakeDownloads = Boolean(changes[SHOULD_TAKE_DOWNLOADS_KEY].newValue ?? true);
   }
-  if (changes[MEDIA_DOWNLOAD_OVERLAY_KEY]) {
-    mediaDownloadOverlayEnabled = Boolean(changes[MEDIA_DOWNLOAD_OVERLAY_KEY].newValue ?? true);
+  if (changes[IS_MEDIA_BUTTON_ENABLED_KEY]) {
+    isMediaButtonEnabled = Boolean(changes[IS_MEDIA_BUTTON_ENABLED_KEY].newValue ?? true);
+  }
+  if (changes[MIN_TAKE_SIZE_KB_KEY]) {
+    minTakeSizeKB = Number(changes[MIN_TAKE_SIZE_KB_KEY].newValue) || 0;
+  }
+  if (changes[SHOULD_TAKE_UNKNOWN_SIZE_KEY]) {
+    shouldTakeUnknownSize = Boolean(changes[SHOULD_TAKE_UNKNOWN_SIZE_KEY].newValue ?? true);
   }
   if (changes[DOMAIN_BLACKLIST_KEY]) {
     domainBlacklist = parseRuleLines(String(changes[DOMAIN_BLACKLIST_KEY].newValue ?? ""));
@@ -330,7 +363,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
   void resourceBridge.setLastActiveTab(activeInfo.tabId);
-  void injectMediaDownloadOverlay(activeInfo.tabId);
+  void injectMediaButton(activeInfo.tabId);
 });
 
 if (!isAndroidFirefoxLike()) {
@@ -340,7 +373,7 @@ if (!isAndroidFirefoxLike()) {
     }
     void resourceBridge.refreshActiveTabFromBrowser().then((tabId) => {
       if (tabId != null) {
-        void injectMediaDownloadOverlay(tabId);
+        void injectMediaButton(tabId);
       }
     });
   });
@@ -374,14 +407,25 @@ chrome.webRequest.onResponseStarted.addListener(
   ["responseHeaders"],
 );
 
-async function interceptBrowserDownload(
+let bypassNextDownload = false;
+let bypassTimer = 0;
+let autoLaunchPending = false;
+
+async function takeBrowserDownload(
   downloadItem: chrome.downloads.DownloadItem,
   options: { eraseFromHistory?: boolean } = {},
 ) {
-  const finalUrl = downloadItem.finalUrl || downloadItem.url;
-  if (!interceptDownloads || !desktopBridge.isReady() || !/^https?:/i.test(finalUrl)) {
+  if (bypassNextDownload) {
+    bypassNextDownload = false;
+    clearTimeout(bypassTimer);
     return;
   }
+
+  const finalUrl = downloadItem.finalUrl || downloadItem.url;
+  if (!shouldTakeDownloads || !/^https?:/i.test(finalUrl)) {
+    return;
+  }
+
   if (shouldBlockByBlacklist({
     url: finalUrl,
     filename: downloadItem.filename,
@@ -390,6 +434,14 @@ async function interceptBrowserDownload(
   })) {
     return;
   }
+
+  if (minTakeSizeKB > 0) {
+    const totalBytes = downloadItem.totalBytes ?? -1;
+    if (totalBytes < 0 && !shouldTakeUnknownSize) { return; }
+    if (totalBytes >= 0 && totalBytes < minTakeSizeKB * 1024) { return; }
+  }
+
+  const wasReady = desktopBridge.isReady();
 
   try {
     await cancelDownload(downloadItem.id);
@@ -400,10 +452,14 @@ async function interceptBrowserDownload(
     // Cleanup failed but the browser will still finish the download as fallback.
   }
 
-  await resourceBridge.handoffBrowserDownload(downloadItem);
+  if (!wasReady) {
+    autoLaunchPending = true;
+  }
+
+  await resourceBridge.routeBrowserDownload(downloadItem);
 }
 
-function reply(sendResponse: (response?: unknown) => void, response: Promise<unknown>) {
+function sendReply(sendResponse: (response?: unknown) => void, response: Promise<unknown>) {
   void response.then(sendResponse);
   return true;
 }
@@ -411,31 +467,27 @@ function reply(sendResponse: (response?: unknown) => void, response: Promise<unk
 if (isFirefoxExtension()) {
   chrome.webRequest.onHeadersReceived.addListener(
     (details) => {
-      if (!interceptDownloads || !desktopBridge.isReady() || !/^https?:/i.test(details.url)) {
-        return undefined;
-      }
+      if (!shouldTakeDownloads || !desktopBridge.isReady() || !/^https?:/i.test(details.url)) { return undefined; }
       return resourceBridge.tryInterceptFirefoxDownload(details);
     },
     { urls: ["<all_urls>"], types: ["main_frame", "sub_frame"] },
     ["blocking", "responseHeaders"] as chrome.webRequest.OnHeadersReceivedOptions[],
   );
-} else {
-  if (supportsDownloadDeterminingFilename()) {
-    chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
-      suggest();
-      void interceptBrowserDownload(downloadItem);
-    });
-  } else if (chrome.downloads.onCreated?.addListener) {
-    chrome.downloads.onCreated.addListener((downloadItem) => {
-      void interceptBrowserDownload(downloadItem, { eraseFromHistory: true });
-    });
-  }
+} else if (supportsDownloadDeterminingFilename()) {
+  chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
+    suggest();
+    void takeBrowserDownload(downloadItem);
+  });
+} else if (chrome.downloads.onCreated?.addListener) {
+  chrome.downloads.onCreated.addListener((downloadItem) => {
+    void takeBrowserDownload(downloadItem, { eraseFromHistory: true });
+  });
 }
 
 // The typed receiver half of the popup command seam (shared/popup-protocol.ts): one
 // exhaustive switch over the command union. Each case narrows the command to its own shape
 // (no cast); the never-typed default makes a missing case a compile error.
-async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayload | DesktopRequestResult> {
+async function runPopupCommand(command: PopupCommand): Promise<PopupState | CommandResult> {
   switch (command.type) {
     case "popup_get_state":
       return buildPopupState({
@@ -451,12 +503,12 @@ async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayl
     case "popup_refresh_connection":
       await desktopBridge.connect(true);
       return buildPopupState({ currentView: command.view });
-    case "popup_set_intercept_downloads":
-      interceptDownloads = command.enabled;
-      await chrome.storage.local.set({ [INTERCEPT_DOWNLOADS_KEY]: interceptDownloads });
+    case "popup_set_take_downloads":
+      shouldTakeDownloads = command.enabled;
+      await chrome.storage.local.set({ [SHOULD_TAKE_DOWNLOADS_KEY]: shouldTakeDownloads });
       return buildPopupState({ currentView: command.view });
-    case "popup_set_media_download_overlay":
-      await updateMediaDownloadOverlay(command.enabled);
+    case "popup_set_media_button":
+      await setMediaButtonEnabled(command.enabled);
       return buildPopupState({ currentView: command.view });
     case "popup_set_notify_on_task_created":
       notifyOnTaskCreated = command.enabled;
@@ -469,16 +521,24 @@ async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayl
       void desktopBridge.requestPairing().catch(() => {
         // The bridge snapshot carries the user-facing pairing failure message.
       });
-      return { ok: true, message: "请确认配对" };
+      return { ok: true, message: chrome.i18n.getMessage("confirmPairing") };
     case "popup_task_action":
+      if (command.action === "open_when_done") {
+        if (openWhenDoneIds.has(command.taskId)) {
+          openWhenDoneIds.delete(command.taskId);
+        } else {
+          openWhenDoneIds.add(command.taskId);
+        }
+        return { ok: true };
+      }
       try {
-        return await desktopBridge.sendRequest<DesktopRequestResult>({
+        return await desktopBridge.sendRequest<CommandResult>({
           type: "task_action",
           taskId: command.taskId,
           action: command.action,
         });
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : "任务操作失败" };
+        return { ok: false, message: error instanceof Error ? error.message : chrome.i18n.getMessage("errorTaskActionFailed") };
       }
     case "popup_send_resource":
       return resourceBridge.sendResource(command.resourceId);
@@ -489,7 +549,7 @@ async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayl
         const infoMessage = await featureBridge.toggleFeature(command.feature, command.tabId);
         return { ok: true, message: infoMessage };
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : "功能切换失败" };
+        return { ok: false, message: error instanceof Error ? error.message : chrome.i18n.getMessage("errorFeatureToggleFailed") };
       }
     case "popup_set_domain_blacklist":
       await chrome.storage.local.set({ [DOMAIN_BLACKLIST_KEY]: command.value });
@@ -500,6 +560,33 @@ async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayl
     case "popup_set_size_blacklist":
       await chrome.storage.local.set({ [SIZE_BLACKLIST_KEY]: command.value.trim() });
       return { ok: true };
+    case "popup_media_action":
+      try {
+        const playbackState = await mediaBridge.runAction(command.action, command.value);
+        return { ok: true, message: "", playbackState };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : chrome.i18n.getMessage("errorMediaActionFailed") };
+      }
+    case "popup_send_images": {
+      let count = 0;
+      for (const image of command.images) {
+        const filename = imageFilename(image.src, image.alt);
+        await sendTaskOrEnqueue({
+          type: "create_task",
+          source: "download",
+          title: filename,
+          payload: {
+            url: image.src,
+            headers: { referer: command.pageUrl },
+            filename,
+            size: 0,
+            supportsRange: false,
+          },
+        });
+        count += 1;
+      }
+      return { ok: true, message: chrome.i18n.getMessage("imagesProcessed", [String(count)]) };
+    }
     default:
       return unknownPopupCommand(command);
   }
@@ -508,8 +595,8 @@ async function handlePopupCommand(command: PopupCommand): Promise<PopupStatePayl
 // Reached only by a popup_ message whose type is not a known command. The `never` parameter
 // makes the switch above exhaustive at compile time; at runtime it returns a structured
 // error instead of throwing, so the caller still gets a response.
-function unknownPopupCommand(command: never): DesktopRequestResult {
-  return { ok: false, message: `未知命令: ${(command as { type?: string }).type ?? ""}` };
+function unknownPopupCommand(command: never): CommandResult {
+  return { ok: false, message: chrome.i18n.getMessage("errorUnknownCommand", [String((command as { type?: string }).type ?? "")]) };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -540,21 +627,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "page_download_media") {
-    return reply(sendResponse, (async () => {
-      const result = await resourceBridge.downloadPageMedia(sender, {
-        selection: message.selection,
-        href: String(message.href ?? ""),
-        title: String(message.title ?? ""),
-      });
-      if (result.ok) {
-        await showTaskCreatedNotification(result.message);
-      }
-      return result;
-    })());
+    return sendReply(sendResponse, resourceBridge.downloadPageMedia(sender, {
+      selection: message.selection,
+      href: String(message.href ?? ""),
+      title: String(message.title ?? ""),
+    }));
   }
 
-  if (message.type === "page_media_overlay_state") {
-    sendResponse({ enabled: mediaDownloadOverlayEnabled });
+  if (message.type === "media_metadata" && Array.isArray(message.urls)) {
+    const meta = {
+      duration: message.duration,
+      videoWidth: message.videoWidth,
+      videoHeight: message.videoHeight,
+      posterUrl: message.posterUrl,
+    };
+    resourceBridge.enrichResource(message.urls, meta);
+    if (sender.tab?.id && meta.posterUrl) {
+      resourceBridge.enrichTabPoster(sender.tab.id, meta.posterUrl);
+    }
+    return;
+  }
+
+  if (message.type === "page_poster" && message.posterUrl && sender.tab?.id) {
+    resourceBridge.enrichTabPoster(sender.tab.id, String(message.posterUrl));
+    return;
+  }
+
+  if (message.type === "bypass_next_download") {
+    bypassNextDownload = true;
+    clearTimeout(bypassTimer);
+    bypassTimer = self.setTimeout(() => { bypassNextDownload = false; }, 3000);
+    return;
+  }
+
+  if (message.type === "popup_mounted") {
+    const shouldLaunch = autoLaunchPending;
+    autoLaunchPending = false;
+    sendResponse({ autoLaunch: shouldLaunch });
+    return;
+  }
+
+  if (message.type === "page_media_button_state") {
+    sendResponse({ enabled: isMediaButtonEnabled });
     return;
   }
 
@@ -564,9 +678,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // chrome-extension:// page, never a tab) may reach the dispatcher. That lets the cast trust
   // the payload, since the popup is the sole, typed caller.
   if (message.type.startsWith("popup_")) {
-    if (!sender.url?.startsWith("chrome-extension://")) { return; }
-    return reply(sendResponse, handlePopupCommand(message as PopupCommand));
+    if (!sender.url?.startsWith("chrome-extension://") && !sender.url?.startsWith("moz-extension://")) { return; }
+    return sendReply(sendResponse, runPopupCommand(message as PopupCommand));
   }
 });
 
-void initialize();
+chrome.runtime.onSuspend.addListener(() => {
+  void resourceBridge.flushState();
+});
+
+void setupBackground();

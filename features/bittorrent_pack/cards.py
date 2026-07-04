@@ -1,31 +1,16 @@
-from pathlib import Path
+from PySide6.QtWidgets import QFileIconProvider, QHBoxLayout, QVBoxLayout
+from qfluentwidgets import FluentIcon, ToolButton
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QVBoxLayout,
-    QWidget,
-    QFileIconProvider,
-)
-from qfluentwidgets import (
-    BodyLabel,
-    CaptionLabel,
-    FluentIcon,
-    IconWidget,
-    PrimaryPushButton,
-    StrongBodyLabel,
-    ToolButton,
-)
-
-from app.bases.models import TaskStatus
-from app.supports.utils import toReadableSize, toReadableTime
-from app.view.components.cards import ResultCard, UniversalTaskCard
-from app.view.components.dialogs import FileSelectDialog
+from app.format import toReadableSize, toReadableTime
+from app.models.task import TaskStatus
+from app.view.cards.draft_cards import UniversalDraftCard
+from app.view.cards.task_cards import UniversalTaskCard
 from app.view.components.labels import IconBodyLabel
-from .task import BTFile, BTTask
+from app.view.dialogs.file_select import FileSelectDialog
+from .task import BTTask
 
 
-def _openFileSelection(task: BTTask, parent) -> set[int] | None:
+def openFileSelection(task: BTTask, parent) -> set[int] | None:
     dialog = TorrentFileSelectDialog(task, parent)
     try:
         if not dialog.exec():
@@ -38,161 +23,169 @@ def _openFileSelection(task: BTTask, parent) -> set[int] | None:
 
 
 class TorrentFileSelectDialog(FileSelectDialog):
-    def __init__(self, task: BTTask, parent=None):
-        super().__init__(task, parent)
-        self.task: BTTask = task
-
-    def _fileDisplayPath(self, file: BTFile) -> str:
-        return self.task.mapPath(file)
-
-    def _fileTypePath(self, file: BTFile) -> str:
-        return file.path
+    def _fileDisplayPath(self, file) -> str:
+        return self._task.toRelativePath(file)
 
 
-class BitTorrentResultCard(ResultCard):
-    def __init__(self, task: BTTask, parent: QWidget = None):
-        super().__init__(task, parent)
-        # instant widget
-        self.iconLabel = IconWidget(self)
-        self.titleLabel = StrongBodyLabel(self.task.title, self)
-        self.sourceLabel = CaptionLabel(self._sourceText(), self)
-        self.summaryLabel = BodyLabel("", self)
-        self.selectFilesButton = PrimaryPushButton(self.tr("选择文件"), self)
-        # instant layout
-        self.mainLayout = QHBoxLayout(self)
-        self.textLayout = QVBoxLayout()
+class BTDraftCard(UniversalDraftCard):
 
-        self._initWidget()
-        self._initLayout()
-        self._bind()
-        self._refreshSummary()
-        self._renderCategoryButton()
+    @property
+    def task(self) -> BTTask:
+        return self._task
 
     def _initWidget(self):
-        self.setFixedHeight(45)
-        self.iconLabel.setFixedSize(20, 20)
+        super()._initWidget()
         icon = QFileIconProvider.IconType.File if self.task.isSingleFile else QFileIconProvider.IconType.Folder
-        self.iconLabel.setIcon(QFileIconProvider().icon(icon))
+        self.iconLabel.setImage(QFileIconProvider().icon(icon).pixmap(16, 16))
+        self.iconLabel.setFixedSize(16, 16)
+        self._selectFilesButton = None
+        if len(self.task.files) > 1:
+            from qfluentwidgets import ToolTipFilter, TransparentToolButton
+            self._selectFilesButton = TransparentToolButton(FluentIcon.LIBRARY, self)
+            self._selectFilesButton.setFixedSize(28, 28)
+            self._selectFilesButton.setToolTip(self.tr("选择文件"))
+            self._selectFilesButton.installEventFilter(ToolTipFilter(self._selectFilesButton))
 
     def _initLayout(self):
-        self.mainLayout.setContentsMargins(10, 6, 10, 6)
-        self.mainLayout.setSpacing(12)
-        self.textLayout.setContentsMargins(0, 0, 0, 0)
-        self.textLayout.setSpacing(2)
-        self.textLayout.addWidget(self.titleLabel)
-        self.textLayout.addWidget(self.sourceLabel)
-        self.mainLayout.addWidget(self.iconLabel, 0, Qt.AlignmentFlag.AlignCenter)
-        self.mainLayout.addLayout(self.textLayout)
-        self.mainLayout.addStretch(1)
-        self.mainLayout.addWidget(self.summaryLabel)
-        self.mainLayout.addSpacing(12)
-        self.mainLayout.addWidget(self.categoryButton)
-        self.mainLayout.addWidget(self.selectFilesButton)
+        super()._initLayout()
+        if self._selectFilesButton is not None:
+            self.layout().addWidget(self._selectFilesButton)
 
     def _bind(self):
-        self.selectFilesButton.clicked.connect(self._onSelectFilesClicked)
-
-    def _sourceText(self) -> str:
-        typeText = "Magnet" if self.task.sourceType == "magnet" else "Torrent"
-        trackerCount = len(self.task.trackers)
-        if trackerCount > 0:
-            return self.tr("{0} · {1} 个 Tracker").format(typeText, trackerCount)
-        return typeText
+        super()._bind()
+        if self._selectFilesButton is not None:
+            self._selectFilesButton.clicked.connect(self._onSelectFilesClicked)
 
     def _refreshSummary(self):
-        self.summaryLabel.setText(
+        self.sizeLabel.setText(
             self.tr("{0}/{1} 个文件 · {2}").format(
                 self.task.countSelected,
-                self.task.countAll,
+                len(self.task.files),
                 toReadableSize(self.task.fileSize),
             )
         )
 
     def _onSelectFilesClicked(self):
-        if _openFileSelection(self.task, self.window()) is not None:
+        if openFileSelection(self.task, self.window()) is not None:
             self._refreshSummary()
-
-    def getTask(self) -> BTTask:
-        return self.task
 
 
 class BTTaskCard(UniversalTaskCard):
-    def __init__(self, task: BTTask, parent=None):
-        super().__init__(task, parent)
-        self.task: BTTask = task
-        self.speedLabel.setIcon(FluentIcon.DOWNLOAD)
-        self.uploadRateLabel = IconBodyLabel("", FluentIcon.SHARE, self)
-        self.infoLayout.insertWidget(self.infoLayout.indexOf(self.leftTimeLabel), self.uploadRateLabel)
-        self.metaInfoLabel = IconBodyLabel("", FluentIcon.INFO, self)
-        self.infoLayout.insertWidget(self.infoLayout.indexOf(self.infoLabel), self.metaInfoLabel)
-        self.selectFilesButton = ToolButton(FluentIcon.LIBRARY, self)
-        self.hBoxLayout.insertWidget(self.hBoxLayout.indexOf(self.verifyHashButton), self.selectFilesButton)
-        self.selectFilesButton.clicked.connect(self._onSelectFilesClicked)
-        self._refreshInfoLayout()
 
-    def _metaText(self) -> str:
+    def _initWidget(self):
+        super()._initWidget()
+        self.speedLabel.setIcon(FluentIcon.DOWNLOAD)
+        self.uploadLabel = IconBodyLabel("", FluentIcon.SHARE, self)
+        self.uploadLabel.hide()
+        self.selectFilesButton = ToolButton(FluentIcon.LIBRARY, self)
+
+    def _initLayout(self):
+        infoLayout = QHBoxLayout()
+        infoLayout.addWidget(self.speedLabel)
+        infoLayout.addWidget(self.uploadLabel)
+        infoLayout.addWidget(self.etaLabel)
+        infoLayout.addWidget(self.sizeLabel)
+        infoLayout.addWidget(self.statusLabel)
+        infoLayout.addStretch()
+
+        contentLayout = QVBoxLayout()
+        contentLayout.setContentsMargins(2, 8, 2, 8)
+        contentLayout.addWidget(self.nameLabel)
+        contentLayout.addLayout(infoLayout)
+
+        self.hBoxLayout = QHBoxLayout(self)
+        self.hBoxLayout.setContentsMargins(12, 0, 12, 0)
+        self.hBoxLayout.addWidget(self.checkBox)
+        self.hBoxLayout.addWidget(self.iconLabel)
+        self.hBoxLayout.addLayout(contentLayout, 1)
+        self.hBoxLayout.addWidget(self.toggleButton)
+        self.hBoxLayout.addWidget(self.verifyHashButton)
+        self.hBoxLayout.addWidget(self.selectFilesButton)
+        self.hBoxLayout.addWidget(self.openFileButton)
+        self.hBoxLayout.addWidget(self.openFolderButton)
+        self.hBoxLayout.addWidget(self.deleteButton)
+
+    def _bind(self):
+        super()._bind()
+        self.selectFilesButton.clicked.connect(self._onSelectFilesClicked)
+
+    def refresh(self, force=False):
+        task: BTTask = self._task
+        if not force and self._lastStatus == task.status and task.status != TaskStatus.RUNNING:
+            return
+
+        if task.status == TaskStatus.RUNNING:
+            progress, speed, receivedBytes = task.currentSnapshot()
+            self.progressBar.setValue(int(progress))
+            self.progressBar.setError(False)
+            if task.fileSize > 0:
+                self.sizeLabel.setText(f"{toReadableSize(receivedBytes)}/{toReadableSize(task.fileSize)}")
+            else:
+                self.sizeLabel.setText(f"{toReadableSize(receivedBytes)}/--")
+
+            if task.isSeeding:
+                self._refreshSeeding(task)
+            else:
+                self._refreshDownloading(task)
+
+            self._refreshButtons()
+            self._lastStatus = task.status
+        else:
+            self.uploadLabel.hide()
+            super().refresh(force)
+            btStatus = self._seedingSummary(task)
+            if btStatus:
+                self.statusLabel.setText(btStatus)
+
+        self.selectFilesButton.setEnabled(
+            task.status != TaskStatus.COMPLETED or any(not f.selected for f in task.files)
+        )
+
+    def _refreshDownloading(self, task: BTTask):
+        self.statusLabel.hide()
+        self.progressBar.show()
+        self.speedLabel.setText(f"{toReadableSize(task.downloadRate)}/s")
+        self.speedLabel.show()
+        self.uploadLabel.setText(f"{toReadableSize(task.uploadRate)}/s")
+        self.uploadLabel.show()
+        self.sizeLabel.show()
+        if task.fileSize > 0 and task.downloadRate > 0:
+            remaining = task.fileSize - task.step.receivedBytes
+            self.etaLabel.setText(toReadableTime(int(remaining / task.downloadRate)))
+        else:
+            self.etaLabel.setText("--")
+        self.etaLabel.show()
+
+    def _refreshSeeding(self, task: BTTask):
+        self.speedLabel.hide()
+        self.etaLabel.hide()
+        self.sizeLabel.hide()
+        self.progressBar.hide()
+        self.uploadLabel.setText(f"{toReadableSize(task.uploadRate)}/s")
+        self.uploadLabel.show()
+        parts = []
+        if task.shareRatioPercent > 0:
+            parts.append(self.tr("分享率 {0}").format(f"{task.shareRatioPercent:.1f}%"))
+        if task.seedingTimeSeconds > 0:
+            parts.append(self.tr("做种 {0}").format(toReadableTime(task.seedingTimeSeconds)))
+        if task.peerCount > 0:
+            parts.append(self.tr("{0} peers").format(task.peerCount))
+        self.statusLabel.setText(self.tr("做种中") + "  " + " · ".join(parts))
+        self.statusLabel.show()
+
+    def _seedingSummary(self, task: BTTask) -> str:
         parts: list[str] = []
-        if self.task.stateText and self.task.stateText not in {"下载中", "做种中"}:
-            parts.append(self.task.stateText)
-        if self.task.isSeeding and self.task.shareRatioPercent > 0:
-            parts.append(self.tr("分享率 {0:.2f}%").format(self.task.shareRatioPercent))
-        if self.task.isSeeding and self.task.seedingTimeSeconds > 0:
-            parts.append(self.tr("做种 {0}").format(toReadableTime(self.task.seedingTimeSeconds)))
-        if self.task.peerCount or self.task.seedCount:
-            parts.append(
-                self.tr("Peers {0} / Seeds {1}").format(
-                    self.task.peerCount,
-                    self.task.seedCount,
-                )
-            )
+        if task.stateText and task.stateText not in (
+            "下载中", "做种中", "检查续传状态", "校验已有文件",
+            "获取元数据", "分配文件中", "等待校验", "下载完成",
+        ):
+            parts.append(task.stateText)
+        if task.shareRatioPercent > 0:
+            parts.append(self.tr("分享率 {0}").format(f"{task.shareRatioPercent:.1f}%"))
+        if task.seedingTimeSeconds > 0:
+            parts.append(self.tr("做种 {0}").format(toReadableTime(task.seedingTimeSeconds)))
         return " · ".join(parts)
 
-    def _refreshInfoLayout(self):
-        if self.task.status == TaskStatus.RUNNING:
-            self.speedLabel.setText(f"{toReadableSize(self.task.downloadRate)}/s")
-            self.uploadRateLabel.setText(f"{toReadableSize(self.task.uploadRate)}/s")
-            if self.task.isSeeding:
-                self.leftTimeLabel.hide()
-            elif self.task.fileSize > 0 and self.task.downloadRate > 0:
-                remainingBytes = self.task.fileSize - self.task.stage.receivedBytes
-                self.leftTimeLabel.setText(toReadableTime(int(remainingBytes / self.task.downloadRate)))
-                self.leftTimeLabel.show()
-            else:
-                self.leftTimeLabel.setText("--")
-                self.leftTimeLabel.show()
-            metaText = self._metaText()
-            self.metaInfoLabel.setText(metaText)
-            self.metaInfoLabel.setVisible(bool(metaText))
-            self.speedLabel.show()
-            self.uploadRateLabel.show()
-            self.progressLabel.show()
-            self.infoLabel.hide()
-            return
-
-        self.uploadRateLabel.hide()
-        self.metaInfoLabel.hide()
-
     def _onSelectFilesClicked(self):
-        previousSelected = {file.index for file in self.task.files if file.selected}
-        selectedIndexes = _openFileSelection(self.task, self.window())
-        if selectedIndexes is None:
-            return
-
-        self._refreshInfoLayout()
-        if self.task.status == TaskStatus.COMPLETED and selectedIndexes - previousSelected and self.task.reopen():
-            self.resumeTask()
-
-    def refresh(self):
-        super().refresh()
-        self._refreshInfoLayout()
-        self.progressBar.setVisible(self.task.status != TaskStatus.COMPLETED and not self.task.isSeeding)
-        self.verifyHashButton.setVisible(
-            self.task.isSingleFile
-            and self.task.status == TaskStatus.COMPLETED
-            and Path(self.task.outputFolder).is_file()
-        )
-        self.selectFilesButton.setEnabled(self.task.status != TaskStatus.COMPLETED or self.task.hasUnselected)
-
-    def onTaskFinished(self):
-        super().onTaskFinished()
-        self._refreshInfoLayout()
+        openFileSelection(self._task, self.window())
+        self.refresh(force=True)

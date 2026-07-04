@@ -1,142 +1,131 @@
-import sys
-
-def _installOrjsonShim() -> None:
-    import json
-    import types
-
-    shim = types.ModuleType("orjson")
-
-    def dumps(obj, *_args, **_kwargs) -> bytes:
-        return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-
-    def loads(data):
-        return json.loads(data)
-
-    shim.dumps = dumps
-    shim.loads = loads
-    sys.modules["orjson"] = shim
-
-_installOrjsonShim()
-
 import os
-
+import sys
 import traceback
 from pathlib import Path
-from time import localtime, strftime, time
 
 from loguru import logger
 
-from app.supports.paths import APP_DATA_DIR
+from app.config.paths import APP_DATA_DIR
 
 Path(APP_DATA_DIR).mkdir(parents=True, exist_ok=True)
+logger.add(f"{APP_DATA_DIR}/GhostDownloader.log", rotation="512 KB")
 
-exceptionSignalBus = None
 
-def exceptionHook(exceptionType, value, tb):
-    exceptionInfo = (exceptionType, value, tb)
-    message = "".join(traceback.format_exception(*exceptionInfo)).rstrip()
-    logger.opt(exception=exceptionInfo).error("Unhandled application exception")
+def _exceptionHook(exceptionType, value, tb):
+    info = (exceptionType, value, tb)
+    logger.opt(exception=info).error("Unhandled application exception")
 
-    if exceptionSignalBus is not None:
-        try:
-            exceptionSignalBus.catchException.emit(message)
-        except Exception as error:
-            logger.opt(exception=error).warning("Failed to emit application exception signal")
 
-logger.add(f"{APP_DATA_DIR}/GhostDownloader.log", rotation="512 KB", enqueue=False)
-sys.excepthook = exceptionHook
+sys.excepthook = _exceptionHook
 
-from qfluentwidgets import qconfig
-from app.supports.application import SingletonApplication
-from app.supports.config import VERSION, cfg
-from app.supports.signal_bus import signalBus as exceptionSignalBus
 
-logger.info(
-    "Ghost Downloader v{} (Android) is launched at {}",
-    VERSION,
-    strftime("%Y-%m-%d %H:%M:%S", localtime(time())),
-)
+def setupEnvironment():
+    import warnings
+    from qfluentwidgets import qconfig
+    from app.config.cfg import cfg
+    from app.config.constants import VERSION
+    from app.platform.android import nativeLibraryDir
 
-qconfig.load(f"{APP_DATA_DIR}/UserConfig.json", cfg)
+    from app.view.qfw_patch import patchFluentLabelThemeChanged
+    from app.view.components.labels import IconBodyLabel
+    patchFluentLabelThemeChanged()
+    qconfig.themeChanged.connect(IconBodyLabel.clearCache)
+    qconfig.load(f"{APP_DATA_DIR}/UserConfig.json", cfg)
+    logger.info("Ghost Downloader v{} (Android) launched", VERSION)
 
-if cfg.get(cfg.dpiScale) != 0:
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-    os.environ["QT_SCALE_FACTOR"] = str(cfg.get(cfg.dpiScale))
+    if cfg.dpiScale.value != 0:
+        os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+        os.environ["QT_SCALE_FACTOR"] = str(cfg.dpiScale.value)
 
-application = SingletonApplication(sys.argv, "gd3")
+    warnings.warn = logger.warning
+    nativeLibraryDir()
 
-from app.view.mobile.dialog_patch import patchFileDialogs, patchMessageBoxWidth
-from app.view.mobile.fluent_patch import patchAndroidMenus, patchFluentIconRendering
-from app.view.mobile.theme_runtime import setSystemFont, setSystemTheme
-from app.view.mobile.touch_runtime import patchCollapsibleGroupTouch, setupTouchScrolling
-setSystemTheme()
-setSystemFont()
-patchFluentIconRendering()
-patchFileDialogs()
-patchMessageBoxWidth()
-patchCollapsibleGroupTouch()
-patchAndroidMenus()
 
-from app.supports.android import nativeLibraryDir as _preloadNativeLibDir
-_preloadNativeLibDir()
+def startApp(application):
+    from app.config.cfg import cfg
+    from app.platform.android_keepalive import keepAlive, REASON_DOWNLOAD, REASON_BROWSER, requestIgnoreBatteryOptimizations
+    from app.platform.android_notification import (
+        notifyBrowserPaired, notifyBrowserTaskAdded, notifyDiskSpaceInsufficient,
+        notifyTaskCompleted,
+    )
+    from app.services.browser_service import browserService
+    from app.services.speed_meter import speedMeter
+    from app.signal_bus import signalBus
+    from app.startup import loadEngine, loadPacks, startEngine, bindNotifications, checkUpdateAtStartup, stopEngine
+    from app.view.mobile.device import setupTouchScrolling
+    from app.view.mobile.window import MobileMainWindow
 
-import warnings
-from PySide6.QtCore import Qt, QTranslator
+    def exceptionHook(exceptionType, value, tb):
+        _exceptionHook(exceptionType, value, tb)
+        message = "".join(traceback.format_exception(exceptionType, value, tb)).rstrip()
+        signalBus.exceptionCaught.emit(message)
 
-from app.view.mobile.window import MobileMainWindow
-from app.services.task_service import taskService
+    sys.excepthook = exceptionHook
 
-import app.assets.resources
-from app.services.core_service import coreService
-from app.services.feature_service import featureService
+    loadEngine(application)
+    loadPacks()
 
-warnings.warn = logger.warning
+    mainWindow = MobileMainWindow()
+    mainWindow.show()
+    setupTouchScrolling(mainWindow)
 
-locale = cfg.language.value.value
-translator = QTranslator()
-translator.load(locale, "gd3", ".", ":/i18n")
-application.installTranslator(translator)
+    from app.services.task_service import taskService
+    taskService.taskStarted.connect(lambda _: keepAlive.holdFor(REASON_DOWNLOAD))
+    taskService.tasksAllCompleted.connect(lambda: keepAlive.release(REASON_DOWNLOAD))
+    speedMeter.speedChanged.connect(keepAlive.setSpeed)
 
-coreService.start()
+    startEngine()
 
-from app.supports.android_keepalive import keepAlive, requestIgnoreBatteryOptimizations
-from app.supports.android_notification import requestNotificationPermission
+    signalBus.exceptionCaught.connect(mainWindow.alertException)
+    signalBus.updateAvailable.connect(mainWindow._onUpdateAvailable)
 
-mainWindow = MobileMainWindow()
-featureService.load(mainWindow)
-taskService.load()
-mainWindow.taskPage.resumeMemorizedTasks()
-mainWindow.updateThemeColor()
-mainWindow.show()
-setupTouchScrolling(mainWindow)
+    requestIgnoreBatteryOptimizations()
 
-requestNotificationPermission()
-requestIgnoreBatteryOptimizations()
+    bindNotifications(notifyTaskCompleted, notifyDiskSpaceInsufficient)
 
-cfg.enableBrowserExtension.valueChanged.connect(lambda enabled: keepAlive.setActiveReason("browser", bool(enabled)))
-keepAlive.setActiveReason("browser", cfg.enableBrowserExtension.value)
+    def onBrowserTaskDraftRequested(tasks):
+        for task in tasks:
+            taskService.add(task)
+        notifyBrowserTaskAdded(tasks)
 
-from app.supports.signal_bus import signalBus
+    def onBrowserPairRequested(request):
+        browserService.approvePair(request["session"], request["requestId"])
+        notifyBrowserPaired(request.get("peerAddress", ""))
 
-def _onGlobalSpeedChanged(speed: int) -> None:
-    downloading = bool(coreService.runningTasks)
-    keepAlive.setWakeLock(downloading)
-    keepAlive.setActiveReason("download", downloading)
-    keepAlive.updateSpeed(speed)
+    browserService.taskDraftRequested.connect(onBrowserTaskDraftRequested)
+    browserService.pairRequested.connect(onBrowserPairRequested)
 
-signalBus.globalSpeedChanged.connect(_onGlobalSpeedChanged)
+    from app.services.aria2_rpc import aria2RpcServer
+    aria2RpcServer.taskDraftRequested.connect(onBrowserTaskDraftRequested)
+    if cfg.isAria2RpcEnabled.value:
+        aria2RpcServer.start()
+    cfg.isAria2RpcEnabled.valueChanged.connect(aria2RpcServer.setEnabled)
+    cfg.aria2RpcPort.valueChanged.connect(aria2RpcServer.setPort)
 
-def _onApplicationStateChanged(state: Qt.ApplicationState) -> None:
-    if state == Qt.ApplicationState.ApplicationSuspended:
-        mainWindow.setUpdatesEnabled(False)
-    elif state == Qt.ApplicationState.ApplicationActive:
-        mainWindow.setUpdatesEnabled(True)
-        mainWindow.update()
+    def onBrowserExtensionToggled(enabled):
+        if enabled:
+            keepAlive.holdFor(REASON_BROWSER)
+        else:
+            keepAlive.release(REASON_BROWSER)
+        browserService.setEnabled(enabled)
 
-application.applicationStateChanged.connect(_onApplicationStateChanged)
+    cfg.isBrowserExtensionEnabled.valueChanged.connect(onBrowserExtensionToggled)
+    if cfg.isBrowserExtensionEnabled.value:
+        keepAlive.holdFor(REASON_BROWSER)
+        browserService.start()
 
-application.aboutToQuit.connect(featureService.shutdown)
-application.aboutToQuit.connect(coreService.stop)
-application.aboutToQuit.connect(taskService.flushNow)
+    checkUpdateAtStartup()
 
-sys.exit(application.exec())
+    application.aboutToQuit.connect(stopEngine)
+
+
+if __name__ == "__main__":
+    from app.platform.application import SingletonApplication
+
+    setupEnvironment()
+    app = SingletonApplication(sys.argv, "gd3")
+    # setupAndroid 须在 QApplication 之后: setupFont 的 QFontDatabase 需要 QGuiApplication
+    from app.view.mobile import setupAndroid
+    setupAndroid()
+    startApp(app)
+    sys.exit(app.exec())

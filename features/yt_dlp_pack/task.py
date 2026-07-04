@@ -1,199 +1,227 @@
+from __future__ import annotations
+
 import asyncio
-import sys
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, TYPE_CHECKING
 
-from app.bases.interfaces import Worker
-from app.bases.models import SpecialFileSize, Task, TaskStage, TaskStatus
-from app.supports.utils import toPosixPath
-from .config import downloaderPath
+from app.models.task import Task, TaskError, TaskStep, TaskStatus
+from app.platform.filesystem import toPosixPath
+from .config import ytDlpConfig, ytDlpRuntime
 
-if TYPE_CHECKING:
-    from features.ffmpeg_pack.config import ffmpegPaths
-else:
-    from ffmpeg_pack.config import ffmpegPaths
-
-
-# yt-dlp prints one line per update via --progress-template; the sentinel keeps our parser
-# clear of yt-dlp's own [download]/[youtube] chatter on the same (merged) stream.
-_PROGRESS_SENTINEL = "#GD3PROG#"
-_FINAL_SENTINEL = "#GD3FILE#"
-_PROGRESS_TEMPLATE = (
-    f"download:{_PROGRESS_SENTINEL}"
+DEFAULT_VIDEO_FORMAT = "bv*+ba/b"
+PROGRESS_TOKEN = "__GD3_PROGRESS__"
+FINAL_FILE_TOKEN = "__GD3_FINAL__"
+BEFORE_DL_TOKEN = "__GD3_BEFORE__"
+PROGRESS_TEMPLATE = (
+    f"download:{PROGRESS_TOKEN}"
     "%(progress.downloaded_bytes)s|%(progress.total_bytes)s|"
     "%(progress.total_bytes_estimate)s|%(progress.speed)s"
 )
-_FINAL_TEMPLATE = f"after_move:{_FINAL_SENTINEL}%(filepath)s"
+FINAL_TEMPLATE = f"after_move:{FINAL_FILE_TOKEN}%(filepath)s"
+BEFORE_DL_TEMPLATE = f"before_dl:{BEFORE_DL_TOKEN}%(filename)s"
 
-DEFAULT_VIDEO_FORMAT = "bv*+ba/b"
+ERROR_HINTS = (
+    ("is not available in your country", "该视频在您所在地区不可用，请尝试配置代理"),
+    ("video unavailable", "视频不可用（可能已被删除或设为私密）"),
+    ("private video", "私密视频，需要已授权账号的 Cookie"),
+    ("members-only", "会员专属视频，需要会员账号的 Cookie"),
+    ("confirm your age", "年龄限制视频，需要已登录账号的 Cookie"),
+    ("confirm you're not a bot", "YouTube 需要人机验证，请在设置中配置 Cookie"),
+    ("requested format is not available", "请求的格式不可用，请尝试其他画质"),
+    ("http error 403", "下载被拒绝（403），链接可能已失效"),
+)
 
 
-def _toInt(value: str) -> int:
+def toInt(value: str) -> int:
     try:
         return int(float(value))
     except (TypeError, ValueError):
         return 0
 
 
-# yt-dlp's ERROR lines are terse and English; map the common ones to actionable Chinese.
-_ERROR_HINTS = (
-    ("is not available in your country", "该视频在当前地区不可用，可在设置里配置代理后重试"),
-    ("video unavailable", "视频不可用（可能已被删除或设为私有）"),
-    ("private video", "私有视频，需要有权限账号的 cookies"),
-    ("members-only", "会员专享视频，需要对应会员账号的 cookies"),
-    ("confirm your age", "年龄限制视频，需要登录账号的 cookies"),
-    ("confirm you're not a bot", "YouTube 要求人机验证，请在设置里配置 cookies"),
-    ("requested format is not available", "请求的画质不可用，请改用其它格式"),
-    ("http error 403", "下载被拒绝（403），链接可能已过期，请重试"),
-)
-
-
-def _friendlyError(message: str) -> str:
-    lowered = message.lower()
-    for needle, hint in _ERROR_HINTS:
-        if needle in lowered:
-            return hint
-    return message
-
-
-async def probeMediaInfo(url: str, proxies: dict, videoFormat: str, headers: dict | None = None) -> tuple[str, int]:
-    """探测真实标题与选定画质的预估总大小；受限/超时回落 ("", UNKNOWN)。"""
-    execPath = downloaderPath()
-    if not execPath:
-        return "", SpecialFileSize.UNKNOWN
-
-    args = [
-        url, "-f", videoFormat, "--no-playlist", "--skip-download", "--no-warnings",
-        "--print", "%(title)s", "--print", "%(filesize_approx)s",
-    ]
-    proxyUrl = next((v for v in proxies.values() if v), "")
-    if proxyUrl:
-        args.extend(["--proxy", proxyUrl])
-    for name, value in (headers or {}).items():
-        text = str(value).strip()
-        if text:
-            args.extend(["--add-header", f"{name}:{text}"])
-
-    try:
-        process = await asyncio.create_subprocess_exec(
-            execPath, *args,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=20)
-    except asyncio.TimeoutError:
-        process.kill()
-        return "", SpecialFileSize.UNKNOWN
-    except OSError:
-        return "", SpecialFileSize.UNKNOWN
-
-    if process.returncode != 0:
-        return "", SpecialFileSize.UNKNOWN
-
-    lines = stdout.decode("utf-8", errors="ignore").strip().splitlines()
-    title = lines[0].strip() if lines else ""
-    size = _toInt(lines[1]) if len(lines) > 1 else SpecialFileSize.UNKNOWN
-    return title, size
-
-
-@dataclass(kw_only=True)
-class YtDlpTaskStage(TaskStage):
-    workerType: type = field(init=False, repr=False)
-
-    videoFormat: str = DEFAULT_VIDEO_FORMAT
-    headers: dict[str, str] = field(default_factory=dict)
-    proxies: dict[str, str] = field(default_factory=dict)
-    lastMessage: str = ""
-
-    @property
-    def outputTemplate(self) -> str:
-        # yt-dlp names the file itself; the real title/size land back via after_move filepath.
-        return toPosixPath(Path(self.task.path) / "%(title)s.%(ext)s")
-
-
 @dataclass(kw_only=True, eq=False)
 class YtDlpTask(Task):
     packId: str = "ytdlp"
-    supportsEdit: ClassVar[bool] = True
+    canEdit = True
+    videoFormat: str = DEFAULT_VIDEO_FORMAT
+    subtitleLanguages: str = ""
+    shouldIncludeAutoSubs: bool = False
+    isPlaylist: bool = False
+    videos: list[dict] = field(default_factory=list)
+
+    def currentSnapshot(self) -> tuple[float, int, int]:
+        if not self.steps or len(self.steps) == 1:
+            return super().currentSnapshot()
+        completedCount = sum(1 for s in self.steps if s.status == TaskStatus.COMPLETED)
+        currentStep = next((s for s in self.steps if s.status == TaskStatus.RUNNING), None)
+        totalCount = len(self.steps)
+        if currentStep:
+            progress = (completedCount * 100 + currentStep.progress) / totalCount
+            speed = currentStep.speed
+        else:
+            progress = completedCount * 100 / totalCount
+            speed = 0
+        receivedBytes = sum(s.receivedBytes for s in self.steps)
+        return progress, speed, receivedBytes
+
+    def setVideos(self, videos: list[dict]) -> None:
+        self.videos = videos
+        self._rebuildSteps()
+
+    def setSelectedVideos(self, indices: set[int]) -> None:
+        for i, video in enumerate(self.videos):
+            video["selected"] = i in indices
+        self._rebuildSteps()
+
+    def _rebuildSteps(self) -> None:
+        self._savedHeaders = self.steps[0].headers if self.steps else getattr(self, "_savedHeaders", {})
+        self.steps.clear()
+        if not self.videos:
+            self.addStep(YtDlpTaskStep(stepIndex=1, headers=self._savedHeaders))
+            return
+        for video in self.videos:
+            if not video.get("selected", True):
+                continue
+            self.addStep(YtDlpTaskStep(
+                stepIndex=len(self.steps) + 1,
+                videoUrl=f"https://www.youtube.com/watch?v={video['id']}",
+                videoTitle=str(video.get("title") or ""),
+                headers=self._savedHeaders,
+            ))
+        if not self.steps:
+            self.addStep(YtDlpTaskStep(stepIndex=1, headers=self._savedHeaders))
+
+
+@dataclass(kw_only=True)
+class YtDlpTaskStep(TaskStep):
+    videoUrl: str = ""
+    videoTitle: str = ""
+    outputFile: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
+    lastMessage: str = ""
 
     @property
-    def stage(self) -> "YtDlpTaskStage":
-        return self.stages[0]
+    def outputPath(self) -> str:
+        return self.outputFile
 
-    def editorCards(self, parent):
-        from qfluentwidgets import FluentIcon
+    def moveFiles(self, oldFolder: Path, newFolder: Path) -> None:
+        from shutil import move
+        if not self.outputFile:
+            return
+        oldPath = Path(self.outputFile)
+        try:
+            relPath = oldPath.relative_to(oldFolder)
+        except ValueError:
+            return
+        newBase = newFolder / relPath
+        newBase.parent.mkdir(parents=True, exist_ok=True)
+        if oldPath.exists():
+            move(str(oldPath), str(newBase))
+        for suffix in (".part", ".ytdl"):
+            p = Path(f"{oldPath}{suffix}")
+            if p.exists():
+                move(str(p), str(f"{newBase}{suffix}"))
+        for frag in oldPath.parent.glob(f"{oldPath.name}.part-Frag*"):
+            move(str(frag), str(newFolder / frag.relative_to(oldFolder)))
+        self.outputFile = str(newBase)
 
-        from app.view.components.add_task_dialog import SelectFolderCard
+    @property
+    def _outputTemplate(self) -> str:
+        return toPosixPath(self.task.outputFolder / "%(title)s.%(ext)s")
 
-        return [
-            SelectFolderCard(FluentIcon.DOWNLOAD, parent.tr("下载到"), parent, initial=self.path),
-        ]
+    def _buildCommand(self) -> list[str]:
+        from ffmpeg_pack.config import ffmpegRuntime
 
-    def applySettings(self, payload: dict):
-        super().applySettings(payload)
-        if "videoFormat" in payload:
-            self.stage.videoFormat = payload["videoFormat"]
-
-
-class YtDlpWorker(Worker):
-    def __init__(self, stage: YtDlpTaskStage):
-        super().__init__(stage)
-        self.stage = stage
-        self._finalPath = ""
-
-    def _buildArgs(self) -> list[str]:
-        stage = self.stage
+        url = self.videoUrl or self.task.url
+        task: YtDlpTask = self.task
         args = [
-            stage.task.url,
-            "-f", stage.videoFormat,
-            "-o", stage.outputTemplate,
+            url,
+            "-f", task.videoFormat,
+            "-o", self._outputTemplate,
             "--no-playlist",
             "--newline",
             "--no-color",
             "--no-simulate",
-            # --print silently turns on quiet mode, which suppresses --progress-template;
-            # --progress forces the progress lines back on so the card updates live.
             "--progress",
-            "--progress-template", _PROGRESS_TEMPLATE,
-            "--print", _FINAL_TEMPLATE,
+            "--progress-template", PROGRESS_TEMPLATE,
+            "--print", BEFORE_DL_TEMPLATE,
+            "--print", FINAL_TEMPLATE,
         ]
-        ffmpegPath, _ = ffmpegPaths()
+
+        if ytDlpConfig.shouldPreferMp4.value:
+            args.extend(["--format-sort", "ext:mp4:m4a"])
+
+        ffmpegPath = ffmpegRuntime.path()
         if ffmpegPath:
             args.extend(["--ffmpeg-location", ffmpegPath])
-        proxyUrl = next((v for v in stage.proxies.values() if v), "")
+
+        from app.config.cfg import cfg, proxy
+        proxyUrl = proxy()
         if proxyUrl:
             args.extend(["--proxy", proxyUrl])
-        for name, value in stage.headers.items():
+        if cfg.isSpeedLimitEnabled.value:
+            args.extend(["--limit-rate", str(cfg.speedLimitation.value)])
+
+        fragments = ytDlpConfig.parallelFragments.value
+        if fragments > 1:
+            args.extend(["--concurrent-fragments", str(fragments)])
+
+        browser = ytDlpConfig.loginBrowser.value
+        if browser:
+            args.extend(["--cookies-from-browser", browser])
+
+        if task.subtitleLanguages:
+            args.extend(["--write-subs", "--sub-langs", task.subtitleLanguages])
+            if task.shouldIncludeAutoSubs:
+                args.append("--write-auto-subs")
+
+        if ytDlpConfig.shouldEmbedThumbnail.value:
+            # Convert to jpg so embedding never needs FFmpeg's png/zlib path — our
+            # minimal FFmpeg ships mjpeg only (webp/jpg thumbnails, no png).
+            args.extend(["--embed-thumbnail", "--convert-thumbnails", "jpg"])
+        if ytDlpConfig.shouldEmbedChapters.value:
+            args.append("--embed-chapters")
+        if ytDlpConfig.shouldEmbedMetadata.value:
+            args.append("--embed-metadata")
+
+        for name, value in self.headers.items():
             text = value.strip()
             if text:
                 args.extend(["--add-header", f"{name}:{text}"])
+
         return args
 
-    def _parseOutputLine(self, line: str):
+    def _parseOutputLine(self, line: str) -> None:
         text = line.strip()
         if not text:
             return
-        if text.startswith(_FINAL_SENTINEL):
-            self._finalPath = text[len(_FINAL_SENTINEL):].strip()
+        if text.startswith(BEFORE_DL_TOKEN):
+            self.outputFile = text[len(BEFORE_DL_TOKEN):].strip()
             return
-        if text.startswith(_PROGRESS_SENTINEL):
-            parts = text[len(_PROGRESS_SENTINEL):].split("|")
+        if text.startswith(FINAL_FILE_TOKEN):
+            self._finalPath = text[len(FINAL_FILE_TOKEN):].strip()
+            return
+        if text.startswith(PROGRESS_TOKEN):
+            parts = text[len(PROGRESS_TOKEN):].split("|")
             if len(parts) >= 4:
-                downloaded = _toInt(parts[0])
-                total = _toInt(parts[1]) or _toInt(parts[2])
-                self.stage.receivedBytes = downloaded
-                self.stage.speed = _toInt(parts[3])
+                downloaded = toInt(parts[0])
+                total = toInt(parts[1]) or toInt(parts[2])
+                self.speed = toInt(parts[3])
+                self.receivedBytes = self._completedBytes + downloaded
                 if total > 0:
-                    self.stage.task.fileSize = max(self.stage.task.fileSize, total)
-                    self.stage.progress = min(99.5, downloaded / total * 100)
+                    if self._totalBytes > 0 and total != self._totalBytes:
+                        self._completedBytes += self._totalBytes
+                        self.receivedBytes += self._totalBytes
+                    self._totalBytes = total
+                    allTotal = self._completedBytes + total
+                    if len(self.task.steps) == 1:
+                        self.task.fileSize = max(self.task.fileSize, allTotal)
+                    self.progress = min(99.5, self.receivedBytes / allTotal * 100)
             return
-        # yt-dlp's ERROR:/[youtube] lines — keep the latest as the failure message.
-        self.stage.lastMessage = text[:1000]
+        self.lastMessage = text[:1000]
 
-    async def supervisor(self, stream: asyncio.StreamReader):
+    async def _readOutput(self, stream: asyncio.StreamReader) -> None:
         buffer = ""
         while True:
             chunk = await stream.read(4096)
@@ -208,91 +236,60 @@ class YtDlpWorker(Worker):
         if buffer.strip():
             self._parseOutputLine(buffer)
 
-    def _applyFinalFile(self):
-        if not self._finalPath:
-            return
-        path = Path(self._finalPath)
-        if path.is_file() and path.stat().st_size > 0:
-            self.stage.task.fileSize = max(self.stage.task.fileSize, path.stat().st_size)
-            if path.name != self.stage.task.title:
-                self.stage.task.setTitle(path.name)
-
-    async def run(self):
-        execPath = downloaderPath()
+    async def run(self) -> None:
+        execPath = ytDlpRuntime.path()
         if not execPath:
-            raise RuntimeError("未找到可用的 yt-dlp，请先在设置中安装或配置运行时")
+            raise TaskError("{name} 未安装，请在设置中安装", name="yt-dlp")
 
-        self.stage.task.path.mkdir(parents=True, exist_ok=True)
-        process = None
-        supervisorTask = None
+        self._finalPath = ""
+        self._totalBytes = 0
+        self._completedBytes = 0
+        self.task.outputFolder.mkdir(parents=True, exist_ok=True)
+
+        process = await asyncio.create_subprocess_exec(
+            execPath,
+            *self._buildCommand(),
+            cwd=Path(execPath).parent,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        readerTask = asyncio.create_task(self._readOutput(process.stdout))
+
         try:
-            process = await asyncio.create_subprocess_exec(
-                execPath,
-                *self._buildArgs(),
-                cwd=Path(execPath).parent,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            supervisorTask = asyncio.create_task(self.supervisor(process.stdout))
-
             await process.wait()
-            await supervisorTask
+            await readerTask
 
             if process.returncode != 0:
-                raise RuntimeError(_friendlyError(self.stage.lastMessage) or f"yt-dlp 退出码异常: {process.returncode}")
+                lowered = self.lastMessage.lower()
+                hint = next((h for needle, h in ERROR_HINTS if needle in lowered), "")
+                raise TaskError(
+                    hint or "进程异常退出（{code}）：{detail}",
+                    code=process.returncode,
+                    detail=self.lastMessage or "yt-dlp",
+                )
 
-            self._applyFinalFile()
-            self.stage.setStatus(TaskStatus.COMPLETED)
+            if self._finalPath:
+                self.outputFile = self._finalPath
+                path = Path(self._finalPath)
+                if path.is_file() and path.stat().st_size > 0:
+                    if len(self.task.steps) == 1:
+                        self.task.fileSize = max(self.task.fileSize, path.stat().st_size)
+                        if path.name != self.task.name:
+                            self.task.setName(path.name)
+
+            self.setStatus(TaskStatus.COMPLETED)
         except asyncio.CancelledError:
-            if process is not None and process.returncode is None:
+            if process.returncode is None:
                 process.terminate()
                 try:
                     await asyncio.wait_for(process.wait(), timeout=3)
                 except asyncio.TimeoutError:
                     process.kill()
                     await process.wait()
-            if supervisorTask is not None and not supervisorTask.done():
-                supervisorTask.cancel()
+            if not readerTask.done():
+                readerTask.cancel()
                 with suppress(asyncio.CancelledError):
-                    await supervisorTask
-            self.stage.setStatus(TaskStatus.PAUSED)
+                    await readerTask
+            self.setStatus(TaskStatus.PAUSED)
             raise
-        except Exception as e:
-            self.stage.setError(e)
-            raise
-
-
-# yt-dlp ships as a single executable (not an archive), so install is just "place + chmod"
-# rather than disk_pack's download→extract→install. This stage runs after the download stage.
-@dataclass(kw_only=True)
-class YtDlpInstallStage(TaskStage):
-    workerType: type = field(init=False, repr=False)
-    canPause: bool = field(init=False, default=False)
-
-    binaryPath: str
-
-
-class YtDlpInstallWorker(Worker):
-    def __init__(self, stage: YtDlpInstallStage):
-        super().__init__(stage)
-        self.stage = stage
-
-    async def run(self):
-        path = Path(self.stage.binaryPath)
-        try:
-            if not path.is_file():
-                raise FileNotFoundError(f"未找到已下载的 yt-dlp: {path}")
-            if sys.platform != "win32":
-                path.chmod(path.stat().st_mode | 0o755)
-            self.stage.setStatus(TaskStatus.COMPLETED)
-        except asyncio.CancelledError:
-            self.stage.setStatus(TaskStatus.PAUSED)
-            raise
-        except Exception as e:
-            self.stage.setError(e)
-            raise
-
-
-YtDlpTaskStage.workerType = YtDlpWorker
-YtDlpInstallStage.workerType = YtDlpInstallWorker

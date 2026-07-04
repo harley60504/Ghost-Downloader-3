@@ -1,35 +1,32 @@
-import asyncio
+from __future__ import annotations
+
+from base64 import b64decode
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from loguru import logger
+from app.models.task import Task, TaskError, TaskStep, TaskFile, TaskStatus
+from app.platform.filesystem import deletePath, toPosixPath
+from .config import bittorrentConfig
 
-from app.bases.models import Task, TaskStage, TaskStatus
-from app.supports.utils import removePath, toSafeFilename
 
-
-@dataclass
-class BTFile:
-    index: int
-    path: str
-    size: int
-    selected: bool = True
+@dataclass(kw_only=True)
+class BTFile(TaskFile):
     priority: int = 4
-    downloadedBytes: int = 0
-    completed: bool = False
 
     def __post_init__(self):
-        self.path = str(PurePosixPath(str(self.path).replace("\\", "/")))
+        self.relativePath = toPosixPath(self.relativePath)
 
 
 @dataclass(kw_only=True, eq=False)
 class BTTask(Task):
     packId: str = "bt"
-    sourceType: str
-    torrentData: str
+    canEdit = True
+    fileType = BTFile
+    sourceType: str = "torrent"
+    torrentData: str = ""
     resumeData: str = ""
     trackers: list[str] = field(default_factory=list)
-    files: list[BTFile] = field(default_factory=list)
+    shouldSeed: bool = True
     shareRatioPercent: float = 0
     seedingTimeSeconds: int = 0
     isSeeding: bool = False
@@ -40,149 +37,113 @@ class BTTask(Task):
     uploadRate: int = 0
 
     def __post_init__(self):
-        self.files = [
-            item if isinstance(item, BTFile) else BTFile(**item)
-            for item in self.files
-        ]
-        self.fileSelectionVersion = 0
-        self.title = toSafeFilename(self.title, fallback="torrent")
+        if self.files:
+            self.files = [
+                item if isinstance(item, BTFile) else BTFile(**item)
+                for item in self.files
+            ]
+        self._fileSelectionVersion = 0
         super().__post_init__()
-        self.fileSize = sum(file.size for file in self.files if file.selected)
-        self._updateSlot()
+        self.fileSize = sum(f.size for f in self.files if f.selected)
 
     @property
-    def stage(self) -> TaskStage:
-        return self.stages[0]
+    def step(self) -> BTTaskStep:
+        return self.steps[0]
 
     @property
     def magnetTorrentPath(self) -> Path | None:
         if self.sourceType != "magnet":
             return None
-        return self.path / f"{self.title}.torrent"
+        return self.outputFolder / f"{self.name}.torrent"
 
     @property
     def countSelected(self) -> int:
-        return sum(1 for file in self.files if file.selected)
-
-    @property
-    def countAll(self) -> int:
-        return len(self.files)
+        return sum(1 for f in self.files if f.selected)
 
     @property
     def isSingleFile(self) -> bool:
         return len(self.files) == 1
 
-    @property
-    def hasUnselected(self) -> bool:
-        return not all(file.selected for file in self.files)
-
-    def mapPath(self, file: BTFile) -> str:
+    def toRelativePath(self, file: BTFile) -> str:
         if self.isSingleFile:
-            return self.title
-        return str(PurePosixPath(self.title, *PurePosixPath(file.path).parts[1:]))
+            return self.name
+        return toPosixPath(Path(self.name, *PurePosixPath(file.relativePath).parts[1:]))
 
     def priorities(self) -> list[int]:
-        return [file.priority if file.selected else 0 for file in self.files]
+        return [f.priority if f.selected else 0 for f in self.files]
 
     def setSelection(self, selectedIndexes: set[int]):
         if not selectedIndexes:
             raise ValueError("至少需要选择一个文件")
-
         changed = False
-        for file in self.files:
-            selected = file.index in selectedIndexes
+        for f in self.files:
+            selected = f.index in selectedIndexes
             priority = 4 if selected else 0
-            if file.selected != selected or file.priority != priority:
+            if f.selected != selected or f.priority != priority:
                 changed = True
-            file.selected = selected
-            file.priority = priority
+            f.selected = selected
+            f.priority = priority
             if not selected:
-                file.downloadedBytes = 0
-                file.completed = False
-
+                f.downloadedBytes = 0
+                f.completed = False
         if not changed:
             return
+        self._fileSelectionVersion += 1
+        self.fileSize = sum(f.size for f in self.files if f.selected)
 
-        self.fileSelectionVersion += 1
-        self.fileSize = sum(file.size for file in self.files if file.selected)
-
-    def cleanup(self):
-        super().cleanup()
+    def deleteFiles(self):
+        super().deleteFiles()
         if self.magnetTorrentPath is not None:
-            removePath(self.magnetTorrentPath)
+            deletePath(self.magnetTorrentPath)
 
-    def reopen(self) -> bool:
-        if self.stage.status != TaskStatus.COMPLETED:
-            return False
-
-        if not any(file.selected and not file.completed for file in self.files):
-            return False
-
-        self.isSeeding = False
-        self._updateSlot()
-        self.stateText = "已添加新的下载文件"
-        self.stage.setStatus(TaskStatus.PAUSED)
-        self.stage.receivedBytes = sum(file.downloadedBytes for file in self.files if file.selected)
-        if self.fileSize > 0:
-            self.stage.progress = self.stage.receivedBytes / self.fileSize * 100
-        else:
-            self.stage.progress = 0
-        return True
-
-    def updateProgress(self, fileBytes: list[int]):
-        for file in self.files:
-            if not file.selected:
-                file.downloadedBytes = 0
-                file.completed = False
-                continue
-            downloaded = fileBytes[file.index] if file.index < len(fileBytes) else 0
-            file.downloadedBytes = downloaded
-            file.completed = file.size > 0 and downloaded >= file.size
+    def _move(self, newFolder: Path) -> None:
+        from shutil import move
+        if self.magnetTorrentPath is not None and self.magnetTorrentPath.exists():
+            move(str(self.magnetTorrentPath), str(newFolder / f"{self.name}.torrent"))
+        super()._move(newFolder)
 
     def reset(self) -> TaskStatus:
         result = super().reset()
         self.resumeData = ""
+        self.shouldSeed = True
         self.shareRatioPercent = 0
         self.seedingTimeSeconds = 0
         self.isSeeding = False
-        self._updateSlot()
         self.stateText = ""
         self.peerCount = 0
         self.seedCount = 0
         self.downloadRate = 0
         self.uploadRate = 0
-        for file in self.files:
-            file.downloadedBytes = 0
-            file.completed = False
+        for f in self.files:
+            f.downloadedBytes = 0
+            f.completed = False
         return result
 
-    def _updateSlot(self):
-        self.usesSlot = not self.isSeeding
+@dataclass(kw_only=True)
+class BTTaskStep(TaskStep):
+    @property
+    def outputPath(self) -> str:
+        return self.task.outputPath
 
-    async def run(self):
-        from .session import btSessionService
+    async def run(self) -> None:
+        from .session import btSession
 
-        try:
-            await btSessionService.lease(self)
-        except asyncio.CancelledError:
-            self.stateText = "已暂停做种" if self.isSeeding else "已暂停下载"
-            self.isSeeding = False
-            self._updateSlot()
-            self.stage.setStatus(TaskStatus.PAUSED)
-            logger.info("{} 停止下载", self.title)
-            raise
-        except Exception as e:
-            if not self.stage.error:
-                self.stage.setError(e)
-            logger.opt(exception=e).error("{} 下载失败", self.title)
-            raise
-        else:
-            self.isSeeding = False
-            self._updateSlot()
-            self.stateText = "已自动暂停做种"
-            self.stage.setStatus(TaskStatus.COMPLETED)
-            self.stage.progress = 100
-            self.stage.speed = 0
+        task: BTTask = self.task
 
-    def __hash__(self):
-        return hash(self.taskId)
+        if task.countSelected <= 0:
+            raise TaskError("至少需要选择一个文件")
+
+        target = Path(task.outputPath)
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch() if task.isSingleFile else target.mkdir()
+
+        if task.sourceType == "magnet" and bittorrentConfig.saveMagnetFile.value:
+            try:
+                task.magnetTorrentPath.write_bytes(b64decode(task.torrentData))
+            except Exception as e:
+                from loguru import logger
+                logger.opt(exception=e).warning("保存 magnet 种子文件失败 {}", task.name)
+
+        await btSession.run(task, self)
+        self.setStatus(TaskStatus.COMPLETED)

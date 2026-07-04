@@ -1,12 +1,13 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from qfluentwidgets import SettingCard, SwitchButton, isDarkTheme, qconfig
 
 from app.view.components.setting_card_group import CollapsibleSettingCardGroup
 from app.view.pages.setting_page import SettingPage
 
-_QWIDGETSIZE_MAX = (1 << 24) - 1
+QWIDGETSIZE_MAX = (1 << 24) - 1
+
 
 class MobileSettingPage(SettingPage):
     def __init__(self, parent=None):
@@ -35,10 +36,10 @@ class MobileSettingPage(SettingPage):
         for i in range(group.cardLayout.count()):
             card = group.cardLayout.itemAt(i).widget()
             if isinstance(card, SettingCard):
-                self._setCardVerticalLayout(card)
+                self._reflowToVertical(card)
         super().addSettingGroup(group)
 
-    def _setCardVerticalLayout(self, card: SettingCard):
+    def _reflowToVertical(self, card: SettingCard):
         if getattr(card, "_usesMobileLayout", False):
             return
 
@@ -67,13 +68,22 @@ class MobileSettingPage(SettingPage):
         controlRow = QHBoxLayout()
         controlRow.setContentsMargins(32, 0, 0, 0)
         controlRow.setSpacing(8)
+        # 桌面控件(滑块 268 / 下拉 200 / 选择框 180 / 商店按钮 等)自带硬最小宽, 窄屏会把整页撑出屏外。
+        # 让行内最宽的主控件填满并可收缩到 0, 辅助控件(数值标签 / 图标按钮)保持原宽, 整页便不再被撑宽。
+        primary = max(controls, key=lambda w: w.sizeHint().width())
         for widget in controls:
-            controlRow.addWidget(widget)
-        controlRow.addStretch(1)
+            widget.setMinimumWidth(0)
+            if widget is primary:
+                policy = widget.sizePolicy()
+                policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)  # 仅放开水平轴, 使其填满行宽并可收缩
+                widget.setSizePolicy(policy)
+                controlRow.addWidget(widget, 1)
+            else:
+                controlRow.addWidget(widget)
         outer.addLayout(controlRow)
 
         card.setMinimumHeight(0)
-        card.setMaximumHeight(_QWIDGETSIZE_MAX)
+        card.setMaximumHeight(QWIDGETSIZE_MAX)
         card._usesMobileLayout = True
 
     def _controlsAfterTitle(self, card: SettingCard) -> list[QWidget]:

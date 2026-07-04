@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QCoreApplication, QFileInfo, QStandardPaths, Qt
+from PySide6.QtWidgets import QFileIconProvider
+
+tr = QCoreApplication.translate
+from loguru import logger
+
+from app.platform.desktop import openFile, revealInFolder
+
+if TYPE_CHECKING:
+    from app.models.task import Task
+    from desktop_notifier import DesktopNotifier
+
+notifier: DesktopNotifier | None = None
+
+
+async def init() -> None:
+    from desktop_notifier import DesktopNotifier as DN, Icon
+
+    iconPath = Path(QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.TempLocation
+    )) / "gd3_logo.png"
+    if not iconPath.exists():
+        from PySide6.QtCore import QResource
+        with open(iconPath, "wb") as f:
+            f.write(QResource(":/image/logo.png").data())
+
+    global notifier
+    notifier = DN(app_name="Ghost Downloader", app_icon=Icon(path=iconPath))
+
+
+def notifyDiskSpaceInsufficient(free: int, needed: int) -> None:
+    if notifier is None:
+        return
+    from app.format import toReadableSize
+    from app.services.coroutine_runner import coroutineRunner
+    coroutineRunner.submit(notifier.send(
+        title=tr("Notifications", "Disk space insufficient"),
+        message=tr("Notifications", "Remaining {0}, need {1}, task not auto-started").format(
+            toReadableSize(free), toReadableSize(needed)),
+    ))
+
+
+def notifyTaskCompleted(task: Task) -> None:
+    if notifier is None:
+        return
+
+    outputPath = task.outputPath
+    if not outputPath:
+        return
+
+    iconPath = Path(QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.TempLocation
+    )) / "gd_finished_icon.png"
+
+    try:
+        QFileIconProvider().icon(QFileInfo(outputPath)).pixmap(48, 48).scaled(
+            128, 128,
+            aspectMode=Qt.AspectRatioMode.KeepAspectRatio,
+            mode=Qt.TransformationMode.SmoothTransformation,
+        ).save(str(iconPath), "PNG")
+    except Exception as e:
+        logger.debug("提取文件图标失败: {}", e)
+
+    from desktop_notifier import Icon, Button
+    from app.services.coroutine_runner import coroutineRunner
+
+    coroutineRunner.submit(notifier.send(
+        title=tr("Notifications", "Download completed"),
+        message=task.name,
+        buttons=[
+            Button(title=tr("Notifications", "Open file"), on_pressed=lambda: openFile(outputPath)),
+            Button(title=tr("Notifications", "Open folder"), on_pressed=lambda: revealInFolder(outputPath)),
+        ],
+        on_clicked=lambda: openFile(outputPath),
+        icon=Icon(path=iconPath) if iconPath.exists() else None,
+    ))

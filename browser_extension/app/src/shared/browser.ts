@@ -36,10 +36,6 @@ export function isAndroidFirefoxLike(): boolean {
   }
 }
 
-export function installDirectory(): string {
-  return isFirefoxExtension() ? "browser_extension/firefox" : "browser_extension/chromium";
-}
-
 export function onSendHeadersExtraInfoSpec(): chrome.webRequest.OnSendHeadersOptions[] {
   return isFirefoxExtension()
     ? [REQUEST_HEADERS]

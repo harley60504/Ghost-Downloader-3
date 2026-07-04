@@ -3,7 +3,7 @@ import {Avatar, Badge, Body1Strong, Caption1, Card, makeStyles, Switch} from "@f
 import {ArrowClockwiseRegular} from "@fluentui/react-icons";
 
 import type {AdvancedFeatureKey} from "../../shared/types";
-import {featureIcon} from "../lib/presenters";
+import {featureIcon} from "../fluent";
 
 const useStyles = makeStyles({
   root: {
@@ -65,7 +65,7 @@ export function FeatureToggleCard({
         <div className={styles.actions}>
           {reloadRequired ? (
             <Badge appearance="tint" color="warning" icon={<ArrowClockwiseRegular />}>
-              需刷新
+              {chrome.i18n.getMessage("reloadRequired")}
             </Badge>
           ) : null}
           <Switch
