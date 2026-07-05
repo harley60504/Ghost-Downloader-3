@@ -20,23 +20,12 @@ MACOS_DOCUMENT_TYPES = [
 
 EXCLUDED_PACKS = {"jack_yao"}
 
-EXTRA_INCLUDE_PACKAGES = []
+EXTRA_INCLUDE_PACKAGES = ["http", "email", "html", "xml", "concurrent"]
 PLATFORM_INCLUDE_PACKAGES = {
     "win32": ["winrt"],
 }
 EXTRA_INCLUDE_MODULES = [
     "app.view.dialogs.edit_task",
-    "concurrent.futures",
-    "email.header",
-    "html.entities",
-    "html.parser",
-    "http.client",
-    "http.cookiejar",
-    "http.cookies",
-    "http.server",
-    "urllib.error",
-    "urllib.response",
-    "xml.etree.ElementTree",
 ]
 
 
