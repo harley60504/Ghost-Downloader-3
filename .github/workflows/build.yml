@@ -102,20 +102,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - name: Set up uv + Python 3.11
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.11'
+          python-version-file: ''
+
+      - name: Install Python (python-build-standalone)
+        run: |
+          uv python install 3.11
 
       - name: Install dependencies
         run: |
-          pip install --timeout=300 -r requirements.txt
+          uv sync
 
       - name: Build with Nuitka
         run: |
           echo "VERSION=${{ needs.prepare.outputs.version }}" >> $env:GITHUB_ENV
           (Get-Content scripts/Ghost-Downloader-3.iss) -replace 'APPLICATION_VERSION', '${{ needs.prepare.outputs.version }}' | Set-Content scripts/Ghost-Downloader-3.iss
-          python scripts/deploy.py
+          uv run scripts/deploy.py
 
       - name: Prepare For Sign
         if: ${{ github.event.inputs.create_release == 'true' || github.event.inputs.sign_artifact == 'true' }}
@@ -214,19 +219,22 @@ jobs:
           brew remove --force --ignore-dependencies openssl@3
           brew cleanup openssl@3
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - name: Set up uv + Python 3.11
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.11'
+          python-version-file: ''
+
+      - name: Install Python (python-build-standalone)
+        run: uv python install 3.11
 
       - name: Install dependencies
-        run: |
-          pip install --timeout=300 -r requirements.txt
+        run: uv sync
 
       - name: Build with Nuitka
         run: |
           echo "VERSION=${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
-          python3 scripts/deploy.py
+          uv run scripts/deploy.py
           chmod +x "dist/Ghost-Downloader-3.app/Contents/MacOS/Ghost-Downloader-3"
           rm -rf "dist/Ghost-Downloader-3.build"
           rm -rf "dist/Ghost-Downloader-3.dist"
@@ -305,21 +313,25 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - name: Set up uv + Python 3.11
+        uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.11'
+          python-version-file: ''
+
+      - name: Install Python (python-build-standalone)
+        run: uv python install 3.11
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y desktop-file-utils libegl1-mesa-dev libzstd1
-          pip install --timeout=300 -r requirements.txt
+          uv sync
 
       - name: Build with Nuitka
         run: |
           echo "VERSION=${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
-          python scripts/deploy.py
+          uv run scripts/deploy.py
           chmod +x "dist/Ghost-Downloader-3.dist/Ghost-Downloader-3.bin"
 
       - name: Build .deb and .AppImage
