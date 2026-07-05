@@ -2,6 +2,13 @@ import os
 import sys
 import traceback
 
+import concurrent.futures  # noqa: F401
+import email.header  # noqa: F401
+import html.parser  # noqa: F401
+import http.cookies  # noqa: F401
+import http.cookiejar  # noqa: F401
+import xml.etree.ElementTree  # noqa: F401
+
 from loguru import logger
 
 from app.config.paths import APP_DATA_DIR
