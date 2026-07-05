@@ -13,28 +13,33 @@ const useStyles = makeStyles({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "12px",
-    paddingLeft: "16px",
-    paddingRight: "16px",
+    gap: "4px",
+    paddingLeft: "8px",
+    paddingRight: "4px",
     marginBottom: "8px",
+    overflow: "hidden",
   },
   nav: {
     minWidth: 0,
     flex: 1,
+    overflowX: "auto",
+    scrollbarWidth: "none",
   },
   bottomRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: "12px",
-    paddingLeft: "16px",
-    paddingRight: "16px",
+    gap: "8px",
+    paddingLeft: "8px",
+    paddingRight: "4px",
+    overflow: "hidden",
   },
   switches: {
     display: "flex",
     alignItems: "center",
-    gap: "12px",
+    gap: "4px",
     whiteSpace: "nowrap",
+    minWidth: 0,
   },
   divider: {
     width: "100%",
@@ -118,7 +123,7 @@ export function Header({
           <Switch
             checked={isMediaButtonEnabled}
             disabled={isMediaButtonBusy}
-            label={chrome.i18n.getMessage("downloadThisMedia")}
+            label={chrome.i18n.getMessage("mediaButtonLabel")}
             labelPosition="before"
             onChange={(_event, data: SwitchOnChangeData) => onMediaButtonToggle(Boolean(data.checked))}
           />

@@ -22,7 +22,7 @@
     "message": "Emparelhamento automático"
   },
   "awaitingPairing": {
-    "message": "Aguardando emparelhamento"
+    "message": "Aguardando"
   },
   "browserDownload": {
     "message": "Download pelo navegador"
@@ -84,6 +84,9 @@
   },
   "downloadThisMedia": {
     "message": "Baixar esta mídia"
+  },
+  "mediaButtonLabel": {
+    "message": "Mídia"
   },
   "downloadWithGhostDownloader": {
     "message": "Baixar com Ghost Downloader"
@@ -457,7 +460,7 @@
     "message": "Pausado"
   },
   "pendingPairing": {
-    "message": "Aguardando emparelhamento"
+    "message": "Aguardando"
   },
   "pendingQueueBadge": {
     "message": "$1 · $2 na fila"
@@ -596,7 +599,7 @@
     "message": "A aba atual não suporta ponte de recursos cat-catch"
   },
   "takeOverDownloads": {
-    "message": "Assumir downloads"
+    "message": "Assumir"
   },
   "taskActionSent": {
     "message": "Ação da tarefa enviada"

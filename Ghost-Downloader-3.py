@@ -1,5 +1,13 @@
+import os
 import sys
 import traceback
+
+import concurrent.futures  # noqa: F401
+import email.header  # noqa: F401
+import html.parser  # noqa: F401
+import http.cookies  # noqa: F401
+import http.cookiejar  # noqa: F401
+import xml.etree.ElementTree  # noqa: F401
 
 from loguru import logger
 
@@ -27,12 +35,29 @@ def setupEnvironment():
     if sys.platform == "win32":
         setupHiddenSubprocess()
 
+        # https://github.com/python/cpython/issues/100256
+        import mimetypes
+        try:
+            mimetypes.init()
+        except OSError:
+            mimetypes._mimetypes_read_windows_registry = None
+            try:
+                mimetypes.init()
+            except OSError:
+                pass
+        if mimetypes._db is None:
+            mimetypes._db = mimetypes.MimeTypes()
+
     import app.assets.resources  # noqa: F401
     from app.view.qfw_patch import patchFluentLabelThemeChanged
     from app.view.components.labels import IconBodyLabel
     patchFluentLabelThemeChanged()
     qconfig.themeChanged.connect(IconBodyLabel.clearCache)
     qconfig.load(f"{APP_DATA_DIR}/UserConfig.json", cfg)
+
+    if cfg.dpiScale.value != 0:
+        os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+        os.environ["QT_SCALE_FACTOR"] = str(cfg.dpiScale.value)
 
     if sys.platform == "win32":
         from PySide6.QtGui import QFont

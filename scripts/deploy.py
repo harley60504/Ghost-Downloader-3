@@ -20,7 +20,7 @@ MACOS_DOCUMENT_TYPES = [
 
 EXCLUDED_PACKS = {"jack_yao"}
 
-EXTRA_INCLUDE_PACKAGES = []
+EXTRA_INCLUDE_PACKAGES = ["http", "email", "html", "xml", "concurrent"]
 PLATFORM_INCLUDE_PACKAGES = {
     "win32": ["winrt"],
 }

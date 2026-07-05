@@ -85,6 +85,9 @@
   "downloadThisMedia": {
     "message": "このメディアをダウンロード"
   },
+  "mediaButtonLabel": {
+    "message": "メディアボタン"
+  },
   "downloadWithGhostDownloader": {
     "message": "Ghost Downloader でダウンロード"
   },
@@ -596,7 +599,7 @@
     "message": "現在のタブは cat-catch リソースブリッジをサポートしていません"
   },
   "takeOverDownloads": {
-    "message": "ダウンロードの引継ぎ"
+    "message": "引継ぎ"
   },
   "taskActionSent": {
     "message": "タスク操作を送信しました"

@@ -16,13 +16,13 @@
     "message": "Audio Track"
   },
   "authenticating": {
-    "message": "Authenticating"
+    "message": "Verifying"
   },
   "autoPair": {
     "message": "Auto Pair"
   },
   "awaitingPairing": {
-    "message": "Awaiting Pairing"
+    "message": "Pairing"
   },
   "browserDownload": {
     "message": "Browser Download"
@@ -84,6 +84,9 @@
   },
   "downloadThisMedia": {
     "message": "Download this media"
+  },
+  "mediaButtonLabel": {
+    "message": "Media button"
   },
   "downloadWithGhostDownloader": {
     "message": "Download with Ghost Downloader"
@@ -457,7 +460,7 @@
     "message": "Paused"
   },
   "pendingPairing": {
-    "message": "Pending Pairing"
+    "message": "Pairing"
   },
   "pendingQueueBadge": {
     "message": "$1 · $2 queued"
@@ -596,7 +599,7 @@
     "message": "Current tab does not support cat-catch resource bridge"
   },
   "takeOverDownloads": {
-    "message": "Take Over Downloads"
+    "message": "Take over"
   },
   "taskActionSent": {
     "message": "Task action sent"

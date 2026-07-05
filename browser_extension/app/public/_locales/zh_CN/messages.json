@@ -101,6 +101,9 @@
   "downloadThisMedia": {
     "message": "下载此媒体"
   },
+  "mediaButtonLabel": {
+    "message": "媒体按钮"
+  },
   "downloadWithGhostDownloader": {
     "message": "使用 Ghost Downloader 下载"
   },

@@ -85,6 +85,9 @@
   "downloadThisMedia": {
     "message": "下載此媒體"
   },
+  "mediaButtonLabel": {
+    "message": "媒體按鈕"
+  },
   "downloadWithGhostDownloader": {
     "message": "使用 Ghost Downloader 下載"
   },
